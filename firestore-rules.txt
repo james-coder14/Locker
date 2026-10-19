@@ -8,6 +8,9 @@ service cloud.firestore {
     function isMod() {
       return signedIn() && exists(/databases/$(database)/documents/mods/$(request.auth.uid));
     }
+    function isTeacher() {
+      return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
     function isMember(classId) {
       return signedIn() && exists(/databases/$(database)/documents/members/$(classId + '_' + request.auth.uid));
     }
@@ -20,20 +23,30 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
+    match /usernames/{name} {
+      allow get: if signedIn();
+      allow create: if signedIn() && name.matches('^[a-z0-9_]{3,20}$')
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     match /users/{uid} {
       allow read: if signedIn();
       allow write: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['name', 'bio', 'contactEmail', 'photo', 'onboarded', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'bio', 'contactEmail', 'username', 'role', 'photo', 'onboarded', 'updatedAt'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
         && request.resource.data.bio is string && request.resource.data.bio.size() <= 300
         && request.resource.data.contactEmail is string && request.resource.data.contactEmail.size() <= 100
+        && request.resource.data.username is string && request.resource.data.username.matches('^[a-z0-9_]{3,20}$')
+        && request.resource.data.role in ['teacher', 'student']
         && request.resource.data.photo is string && request.resource.data.photo.size() <= 150000
         && request.resource.data.onboarded is bool;
     }
 
     match /classes/{classId} {
       allow read: if isMember(classId);
-      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid
+      allow create: if signedIn() && isTeacher() && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.keys().hasOnly(['name', 'code', 'ownerUid', 'ownerName', 'createdAt'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
         && request.resource.data.code is string && request.resource.data.code.size() == 6;

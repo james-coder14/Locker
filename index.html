@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#121212">
 <title>Locker</title>
+<script>
+function lockerShowError(m){
+  var t = (m && m.message) ? m.message : String(m);
+  var d = document.createElement("pre");
+  d.style.cssText = "color:#fff;background:#5a0000;padding:12px;white-space:pre-wrap;font-size:13px;position:fixed;top:0;left:0;right:0;z-index:99;margin:0";
+  d.textContent = "Locker error: " + t;
+  if (document.body) document.body.appendChild(d);
+  else document.addEventListener("DOMContentLoaded", function(){ document.body.appendChild(d); });
+}
+window.addEventListener("error", function(e){ lockerShowError(e.error || e.message); });
+window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.reason); });
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -52,6 +64,8 @@
       </div>
       <div class="form">
         <input class="field" id="pName" maxlength="40" placeholder="Your name">
+        <input class="field" id="pUsername" maxlength="20" placeholder="Username (letters, numbers, _)" autocapitalize="none">
+        <select class="field" id="pRole"><option value="">Are you a teacher or a student?</option><option value="teacher">Teacher</option><option value="student">Student</option></select>
         <textarea class="field" id="pBio" maxlength="300" rows="3" placeholder="Bio (a few words about you)"></textarea>
         <input class="field" id="pEmail" type="email" placeholder="Contact email">
         <button id="s1Next" class="btn wide">Next</button>

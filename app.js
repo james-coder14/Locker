@@ -16,7 +16,13 @@ const mobile = () => matchMedia("(max-width:720px)").matches;
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 function toast(t) { const d = el("div", "toast", t); document.body.appendChild(d); setTimeout(() => d.remove(), 2400); }
-function onErr(e) { if (e && e.code === "permission-denied") toast("You do not have access to that."); }
+function onErr(e) {
+  if (!e) return;
+  if (e.code === "permission-denied") toast("You do not have access to that.");
+  else if (e.code === "failed-precondition") toast("Database setup is missing an index. Check the Firestore Indexes tab.");
+  else toast("Something went wrong: " + (e.code || "error"));
+}
+function ms(ts) { return ts && ts.toMillis ? ts.toMillis() : Date.now(); }
 function when(ts) { const d = ts && ts.toDate ? ts.toDate() : new Date(ts || Date.now()); return d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }); }
 function show(name) { ["login", "verify", "onboard", "app"].forEach(s => $(s).classList.toggle("hidden", s !== name)); }
 function avatar(src, size) { const i = el("img", "avatar" + (size ? " " + size : "")); if (src) i.src = src; else i.classList.add("empty"); i.alt = ""; return i; }
@@ -113,6 +119,8 @@ function startOnboarding(mode) {
   $("pName").value = p.name || (S.user && S.user.displayName) || "";
   $("pBio").value = p.bio || "";
   $("pEmail").value = p.contactEmail || (S.user && S.user.email) || "";
+  $("pUsername").value = p.username || "";
+  $("pRole").value = p.role || "";
   stepTo(1);
 }
 function shrinkImage(file, size) {
@@ -140,9 +148,19 @@ async function saveProfile() {
   const name = $("pName").value.trim();
   const bio = $("pBio").value.trim();
   const contactEmail = $("pEmail").value.trim();
+  const username = $("pUsername").value.trim().toLowerCase();
+  const role = $("pRole").value;
   if (!name) { onboardMsg("Please enter your name."); return false; }
+  if (!/^[a-z0-9_]{3,20}$/.test(username)) { onboardMsg("Username must be 3 to 20 letters, numbers, or underscores."); return false; }
+  if (role !== "teacher" && role !== "student") { onboardMsg("Please choose Teacher or Student."); return false; }
   if (!contactEmail) { onboardMsg("Please enter a contact email."); return false; }
-  const data = { name, bio, contactEmail, photo: S.photoData || "", onboarded: !!(S.profile && S.profile.onboarded), updatedAt: Date.now() };
+  const oldUsername = S.profile && S.profile.username;
+  if (username !== oldUsername) {
+    try { await setDoc(doc(db, "usernames", username), { uid: S.user.uid }); }
+    catch (e) { onboardMsg("That username is taken. Try another one."); return false; }
+    if (oldUsername) await deleteDoc(doc(db, "usernames", oldUsername)).catch(() => {});
+  }
+  const data = { name, bio, contactEmail, username, role, photo: S.photoData || "", onboarded: !!(S.profile && S.profile.onboarded), updatedAt: Date.now() };
   try { await setDoc(doc(db, "users", S.user.uid), data); }
   catch (e) { onboardMsg("Could not save. Check your internet and try again."); return false; }
   S.profile = data; S.users[S.user.uid] = data;
@@ -156,7 +174,9 @@ $("s1Next").onclick = async () => {
 };
 $("s1Cancel").onclick = () => enterApp(S.cls && S.cls.classId);
 
-$("s2Create").onclick = () => stepTo(3);
+$("s2Create").onclick = () => (S.profile && S.profile.role === "teacher")
+  ? stepTo(3)
+  : onboardMsg("Only teachers can create classrooms. Ask your teacher for the classroom code.");
 $("s2Back").onclick = () => (S.profile && S.profile.onboarded) ? enterApp(S.cls && S.cls.classId) : stepTo(1);
 $("s2Join").onclick = async () => {
   const code = $("joinCode").value.trim().toUpperCase();
@@ -229,7 +249,10 @@ async function finishOnboarding() {
   enterApp(pick);
 }
 
-$("addClass").onclick = () => { S.onboardMode = "new"; show("onboard"); stepTo(2); };
+$("addClass").onclick = () => {
+  if (!S.profile || !S.profile.username || !S.profile.role) return startOnboarding("edit");
+  S.onboardMode = "new"; show("onboard"); stepTo(2);
+};
 $("editProfile").onclick = () => startOnboarding("edit");
 
 /* ---------- Main app ---------- */
@@ -260,7 +283,7 @@ function renderProfileCard() {
   const img = $("sideAvatar");
   img.src = p.photo || ""; img.classList.toggle("empty", !p.photo);
   $("sideName").textContent = p.name || "Student";
-  $("sideBio").textContent = p.bio || "";
+  $("sideBio").textContent = (p.username ? "@" + p.username + (p.bio ? " · " : "") : "") + (p.bio || "");
 }
 
 function renderSideClasses() {
@@ -286,14 +309,14 @@ function selectClass(c) {
   go("feed");
   if (!c) return;
   const cid = c.classId;
-  S.clsUnsubs.push(onSnapshot(query(collection(db, "posts"), where("classId", "==", cid), orderBy("createdAt", "desc"), limit(100)),
-    s => { S.posts = s.docs.map(d => ({ id: d.id, ...d.data() })); renderPosts(); ensureUsers(S.posts.map(p => p.author)); }, onErr));
+  S.clsUnsubs.push(onSnapshot(query(collection(db, "posts"), where("classId", "==", cid), limit(200)),
+    s => { S.posts = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt)); renderPosts(); ensureUsers(S.posts.map(p => p.author)); }, onErr));
   S.clsUnsubs.push(onSnapshot(query(collection(db, "likes"), where("classId", "==", cid)),
     s => { S.likes = s.docs.map(d => ({ id: d.id, ...d.data() })); renderPosts(); }, onErr));
   S.clsUnsubs.push(onSnapshot(query(collection(db, "members"), where("classId", "==", cid)),
     s => { S.members = s.docs.map(d => ({ id: d.id, ...d.data() })); renderMembers(); ensureUsers(S.members.map(m => m.uid)); }, onErr));
-  S.clsUnsubs.push(onSnapshot(query(collection(db, "events"), where("classId", "==", cid), orderBy("at", "asc")),
-    s => { S.events = s.docs.map(d => ({ id: d.id, ...d.data() })); renderEvents(); }, onErr));
+  S.clsUnsubs.push(onSnapshot(query(collection(db, "events"), where("classId", "==", cid)),
+    s => { S.events = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.at || 0) - (b.at || 0)); renderEvents(); }, onErr));
   if (isOwnerOf(c) || S.mod) {
     S.clsUnsubs.push(onSnapshot(query(collection(db, "reports"), where("classId", "==", cid)),
       s => { S.reports = s.docs.map(d => ({ id: d.id, ...d.data() })); renderReports(); renderTabs(); }, onErr));
@@ -382,6 +405,7 @@ function renderMembers() {
     r.append(avatar(u.photo, "lg"));
     const info = el("div", "info");
     info.append(el("b", "", (u.name || "Student") + (m.role === "owner" ? " · Teacher" : "")));
+    if (u.username) info.append(el("span", "", "@" + u.username));
     if (u.bio) info.append(el("span", "", u.bio));
     if (u.contactEmail) info.append(el("span", "", u.contactEmail));
     r.append(info);
