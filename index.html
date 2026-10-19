@@ -9,14 +9,13 @@
 </head>
 <body>
 
-<div id="login" class="login hidden">
-  <div class="login-box">
+<div id="login" class="screen hidden">
+  <div class="box">
     <div class="mark big">L</div>
     <h1>Locker</h1>
-    <p id="loginSub">Sign in to continue.</p>
-
-    <div id="authForm" class="form">
-      <input class="field" id="nameIn" maxlength="40" placeholder="Your name (shown on posts)" autocomplete="name">
+    <p id="loginSub" class="muted">Sign in to continue.</p>
+    <div class="form">
+      <input class="field hidden" id="nameIn" maxlength="40" placeholder="Your name" autocomplete="name">
       <input class="field" id="emailIn" type="email" placeholder="Email" autocomplete="email">
       <input class="field" id="passIn" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
       <button id="authBtn" class="btn wide">Sign in</button>
@@ -27,11 +26,11 @@
   </div>
 </div>
 
-<div id="verify" class="login hidden">
-  <div class="login-box">
+<div id="verify" class="screen hidden">
+  <div class="box">
     <div class="mark big">L</div>
     <h1>Check your email</h1>
-    <p>We sent a verification link. Open it, then tap the button below.</p>
+    <p class="muted">We sent a verification link. Open it, then tap the button below.</p>
     <button id="checkBtn" class="btn wide">I verified my email</button>
     <button id="resendBtn" class="link wide">Resend email</button>
     <button id="backBtn" class="link wide">Sign out</button>
@@ -39,32 +38,99 @@
   </div>
 </div>
 
-<div class="app hidden" id="app">
-  <aside id="side"></aside>
+<div id="onboard" class="screen hidden">
+  <div class="box wide-box">
+    <p class="step-label" id="stepLabel">Step 1 of 4</p>
+
+    <div id="s1">
+      <h2>Introduce yourself</h2>
+      <p class="muted">Add a profile picture, a bio, a contact email, and your name.</p>
+      <div class="avatar-row">
+        <img id="photoPreview" class="avatar xl empty" alt="">
+        <label class="btn small">Choose photo<input id="photoIn" type="file" accept="image/*" class="fileinput"></label>
+      </div>
+      <div class="form">
+        <input class="field" id="pName" maxlength="40" placeholder="Your name">
+        <textarea class="field" id="pBio" maxlength="300" rows="3" placeholder="Bio (a few words about you)"></textarea>
+        <input class="field" id="pEmail" type="email" placeholder="Contact email">
+        <button id="s1Next" class="btn wide">Next</button>
+        <button id="s1Cancel" class="link wide hidden">Cancel</button>
+      </div>
+    </div>
+
+    <div id="s2" class="hidden">
+      <h2>Create or join a classroom</h2>
+      <div class="form">
+        <button id="s2Create" class="btn wide">Create a classroom</button>
+        <p class="muted center">or</p>
+        <input class="field" id="joinCode" maxlength="6" placeholder="Classroom code" autocapitalize="characters">
+        <button id="s2Join" class="btn wide">Join classroom</button>
+        <button id="s2Back" class="link wide">Back</button>
+      </div>
+    </div>
+
+    <div id="s3" class="hidden">
+      <h2>Set up your classroom</h2>
+      <p class="muted">Name your classroom. Locker gives you a code to share with classmates.</p>
+      <div class="form">
+        <input class="field" id="className" maxlength="60" placeholder="Classroom name (e.g. Math 1A)">
+        <button id="s3Create" class="btn wide">Create classroom</button>
+        <button id="s3Back" class="link wide">Back</button>
+      </div>
+    </div>
+
+    <div id="s4" class="hidden">
+      <h2>Add classmates</h2>
+      <p class="muted">Tell classmates about Locker and have them make an account. They can instantly join with your classroom code.</p>
+      <div class="code-box">
+        <span class="muted small">Classroom code</span>
+        <div id="codeBig" class="code"></div>
+      </div>
+      <div class="form">
+        <textarea id="inviteText" class="field" rows="8" readonly></textarea>
+        <button id="copyInvite" class="btn wide">Copy message</button>
+        <button id="shareInvite" class="btn wide">Share</button>
+        <button id="s4Done" class="link wide">Open Locker</button>
+      </div>
+    </div>
+
+    <p id="onboardMsg" class="note"></p>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <aside>
+    <div class="profile-card">
+      <img id="sideAvatar" class="avatar" alt="">
+      <div><b id="sideName">Student</b><span id="sideBio"></span></div>
+    </div>
+    <button class="link" id="editProfile">Edit profile</button>
+    <div class="label">YOUR CLASSROOMS</div>
+    <div id="classList"></div>
+    <button class="item" id="addClass">+ Join or create a classroom</button>
+    <button class="item" id="sideSignOut">Sign out</button>
+  </aside>
   <div class="scrim" id="scrim"></div>
   <main>
     <header>
       <button class="menu" id="menuBtn" aria-label="Menu"><span></span></button>
-      <h1 id="title">Student Body</h1>
-      <button class="link" id="signOutBtn">Sign out</button>
+      <h1 id="title">Locker</h1>
+      <span id="classCode" class="muted small"></span>
     </header>
     <div class="content">
       <section id="feed">
-        <div class="composer"><input id="newPost" maxlength="500" placeholder="Post to this channel"><button id="postBtn">Post</button></div>
+        <div class="composer"><input id="newPost" maxlength="500" placeholder="Post to your classroom"><button id="postBtn">Post</button></div>
         <div id="posts"></div>
-        <p class="note">Posts show your name. Every post can be reported to moderators.</p>
+        <p class="note">Posts show your name. Anyone can report a post, and the teacher reviews reports.</p>
       </section>
+      <section id="members" class="hidden"><div id="memberList"></div></section>
       <section id="calendar" class="hidden">
         <div id="evForm" class="form hidden">
-          <input class="field" id="evTitle" placeholder="Event title">
-          <input class="field" id="evWhen" placeholder="When (e.g. Fri 3:30pm)">
+          <input class="field" id="evTitle" maxlength="100" placeholder="Event title">
+          <input class="field" id="evWhen" maxlength="60" placeholder="When (e.g. Fri 3:30pm)">
           <button class="btn" id="evAdd">Add event</button>
         </div>
         <div id="events"></div>
-      </section>
-      <section id="connect" class="hidden">
-        <div class="row"><div class="info"><b>Google Classroom</b><span>Coming soon</span></div></div>
-        <div class="row"><div class="info"><b>Remind</b><span>Coming soon</span></div></div>
       </section>
       <section id="mod" class="hidden"><div id="reports"></div></section>
     </div>

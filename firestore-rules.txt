@@ -2,21 +2,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Must be signed in with a verified Google account.
-    // TO LOCK TO YOUR SCHOOL: add  && request.auth.token.email.matches('.*@yourschool[.]org')
-    // (Note: this only works if your school's address is the one used to sign up.)
     function signedIn() {
       return request.auth != null && request.auth.token.email_verified == true;
     }
-
-    // Moderators are users who have a document at mods/<their uid>.
-    // Only you can create these, in the Firebase console.
     function isMod() {
       return signedIn() && exists(/databases/$(database)/documents/mods/$(request.auth.uid));
     }
-
-    function validChannel(c) {
-      return c in ['Student Body', 'Juniors', 'Student Council', 'Math 1A', 'Girls Soccer'];
+    function isMember(classId) {
+      return signedIn() && exists(/databases/$(database)/documents/members/$(classId + '_' + request.auth.uid));
+    }
+    function isOwner(classId) {
+      return signedIn() && get(/databases/$(database)/documents/classes/$(classId)).data.ownerUid == request.auth.uid;
     }
 
     match /mods/{uid} {
@@ -24,47 +20,82 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
-    match /posts/{id} {
+    match /users/{uid} {
       allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'bio', 'contactEmail', 'photo', 'onboarded', 'updatedAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
+        && request.resource.data.bio is string && request.resource.data.bio.size() <= 300
+        && request.resource.data.contactEmail is string && request.resource.data.contactEmail.size() <= 100
+        && request.resource.data.photo is string && request.resource.data.photo.size() <= 150000
+        && request.resource.data.onboarded is bool;
+    }
+
+    match /classes/{classId} {
+      allow read: if isMember(classId);
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['name', 'code', 'ownerUid', 'ownerName', 'createdAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.code is string && request.resource.data.code.size() == 6;
+      allow update, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /classCodes/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn() && request.resource.data.keys().hasOnly(['classId'])
+        && isOwner(request.resource.data.classId);
+      allow delete: if signedIn() && isOwner(resource.data.classId);
+    }
+
+    match /members/{id} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isMember(resource.data.classId));
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['text', 'author', 'authorName', 'channel', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['classId', 'uid', 'role', 'joinedAt'])
+        && id == request.resource.data.classId + '_' + request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && (request.resource.data.role == 'student' || (request.resource.data.role == 'owner' && isOwner(request.resource.data.classId)));
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid && resource.data.role == 'student';
+    }
+
+    match /posts/{id} {
+      allow read: if isMember(resource.data.classId);
+      allow create: if isMember(request.resource.data.classId)
+        && request.resource.data.keys().hasOnly(['text', 'author', 'authorName', 'classId', 'createdAt'])
         && request.resource.data.author == request.auth.uid
-        && request.resource.data.authorName is string
-        && request.resource.data.authorName.size() > 0
-        && request.resource.data.authorName.size() <= 40
-        && request.resource.data.text is string
-        && request.resource.data.text.size() > 0
-        && request.resource.data.text.size() <= 500
-        && validChannel(request.resource.data.channel)
+        && request.resource.data.authorName is string && request.resource.data.authorName.size() > 0 && request.resource.data.authorName.size() <= 40
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500
         && request.resource.data.createdAt == request.time;
       allow update: if false;
-      allow delete: if signedIn() && (resource.data.author == request.auth.uid || isMod());
+      allow delete: if signedIn() && (resource.data.author == request.auth.uid || isOwner(resource.data.classId) || isMod());
     }
 
     match /likes/{id} {
-      allow read: if signedIn();
-      allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['post', 'user', 'channel'])
+      allow read: if isMember(resource.data.classId);
+      allow create: if isMember(request.resource.data.classId)
+        && request.resource.data.keys().hasOnly(['post', 'user', 'classId'])
         && request.resource.data.user == request.auth.uid
-        && id == request.resource.data.post + '_' + request.auth.uid
-        && validChannel(request.resource.data.channel);
+        && id == request.resource.data.post + '_' + request.auth.uid;
       allow update: if false;
       allow delete: if signedIn() && resource.data.user == request.auth.uid;
     }
 
     match /reports/{id} {
-      allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['post', 'by', 'text', 'channel', 'at'])
+      allow create: if isMember(request.resource.data.classId)
+        && request.resource.data.keys().hasOnly(['post', 'by', 'text', 'classId', 'at'])
         && request.resource.data.by == request.auth.uid
-        && request.resource.data.text is string
-        && request.resource.data.text.size() <= 500;
-      allow read, delete: if isMod();
+        && request.resource.data.text is string && request.resource.data.text.size() <= 500;
+      allow read, delete: if isOwner(resource.data.classId) || isMod();
       allow update: if false;
     }
 
     match /events/{id} {
-      allow read: if signedIn();
-      allow write: if isMod();
+      allow read: if isMember(resource.data.classId);
+      allow create: if isOwner(request.resource.data.classId)
+        && request.resource.data.keys().hasOnly(['classId', 'title', 'when', 'at'])
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 100;
+      allow update: if false;
+      allow delete: if isOwner(resource.data.classId);
     }
   }
 }
