@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121212">
+<title>Locker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="login" class="login hidden">
+  <div class="login-box">
+    <div class="mark big">L</div>
+    <h1>Locker</h1>
+    <p id="loginSub">Sign in to continue.</p>
+
+    <div id="authForm" class="form">
+      <input class="field" id="nameIn" maxlength="40" placeholder="Your name (shown on posts)" autocomplete="name">
+      <input class="field" id="emailIn" type="email" placeholder="Email" autocomplete="email">
+      <input class="field" id="passIn" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
+      <button id="authBtn" class="btn wide">Sign in</button>
+      <button id="toggleBtn" class="link wide">Create an account</button>
+      <button id="resetBtn" class="link wide">Forgot password?</button>
+    </div>
+    <p id="loginMsg" class="note"></p>
+  </div>
+</div>
+
+<div id="verify" class="login hidden">
+  <div class="login-box">
+    <div class="mark big">L</div>
+    <h1>Check your email</h1>
+    <p>We sent a verification link. Open it, then tap the button below.</p>
+    <button id="checkBtn" class="btn wide">I verified my email</button>
+    <button id="resendBtn" class="link wide">Resend email</button>
+    <button id="backBtn" class="link wide">Sign out</button>
+    <p id="verifyMsg" class="note"></p>
+  </div>
+</div>
+
+<div class="app hidden" id="app">
+  <aside id="side"></aside>
+  <div class="scrim" id="scrim"></div>
+  <main>
+    <header>
+      <button class="menu" id="menuBtn" aria-label="Menu"><span></span></button>
+      <h1 id="title">Student Body</h1>
+      <button class="link" id="signOutBtn">Sign out</button>
+    </header>
+    <div class="content">
+      <section id="feed">
+        <div class="composer"><input id="newPost" maxlength="500" placeholder="Post to this channel"><button id="postBtn">Post</button></div>
+        <div id="posts"></div>
+        <p class="note">Posts show your name. Every post can be reported to moderators.</p>
+      </section>
+      <section id="calendar" class="hidden">
+        <div id="evForm" class="form hidden">
+          <input class="field" id="evTitle" placeholder="Event title">
+          <input class="field" id="evWhen" placeholder="When (e.g. Fri 3:30pm)">
+          <button class="btn" id="evAdd">Add event</button>
+        </div>
+        <div id="events"></div>
+      </section>
+      <section id="connect" class="hidden">
+        <div class="row"><div class="info"><b>Google Classroom</b><span>Coming soon</span></div></div>
+        <div class="row"><div class="info"><b>Remind</b><span>Coming soon</span></div></div>
+      </section>
+      <section id="mod" class="hidden"><div id="reports"></div></section>
+    </div>
+    <nav class="tabs" id="tabs"></nav>
+  </main>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
