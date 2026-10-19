@@ -147,7 +147,22 @@ window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.rea
         </div>
         <div id="events"></div>
       </section>
-      <section id="mod" class="hidden"><div id="reports"></div></section>
+      <section id="dms" class="hidden">
+  <div id="convList"></div>
+  <div id="chat" class="hidden">
+    <div class="chat-head"><button class="link" id="backChat">&larr; Back</button><b id="chatName"></b></div>
+    <div id="msgs"></div>
+    <div id="emojiBar" class="emoji-bar hidden"></div>
+    <div id="gifPanel" class="gif-grid hidden"></div>
+    <div class="composer">
+      <input id="dmInput" maxlength="500" placeholder="Message">
+      <button id="dmEmoji" class="icon-btn" aria-label="Emoji">&#128522;</button>
+      <button id="dmGif" class="icon-btn" aria-label="GIF">GIF</button>
+      <button id="dmSend">Send</button>
+    </div>
+  </div>
+</section>
+<section id="mod" class="hidden"><div id="reports"></div></section>
     </div>
     <nav class="tabs" id="tabs"></nav>
   </main>

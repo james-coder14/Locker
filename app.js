@@ -1,9 +1,10 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendEmailVerification, sendPasswordResetEmail, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, addDoc, setDoc, deleteDoc, getDoc, getDocs, query, where, orderBy, limit, onSnapshot, serverTimestamp }
+import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteField, deleteDoc, getDoc, getDocs, query, where, orderBy, limit, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
+import { settings } from "./settings.js";
 
 const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
@@ -88,6 +89,7 @@ $("sideSignOut").onclick = () => signOut(auth);
 
 onAuthStateChanged(auth, async user => {
   resetClass();
+  unsubConvs();
   S.user = user; S.profile = null; S.mod = false; S.cls = null; S.classes = [];
   if (!user) return show("login");
   if (!user.emailVerified) return show("verify");
@@ -260,6 +262,7 @@ async function enterApp(selectId) {
   resetClass();
   show("app");
   renderProfileCard();
+  subscribeConvs();
   try { await loadClasses(); } catch (e) { S.classes = []; toast("Could not load your classrooms."); }
   renderSideClasses();
   const pick = S.classes.find(c => c.classId === selectId) || S.classes[0] || null;
@@ -336,12 +339,13 @@ async function ensureUsers(uids) {
 function renderTabs() {
   const t = $("tabs"); t.textContent = "";
   const tabs = [["feed", "Feed"], ["members", "Classmates"], ["calendar", "Calendar"]];
+  if (isStudent()) tabs.push(["dms", "Messages"]);
   if (S.cls && (isOwnerOf(S.cls) || S.mod)) tabs.push(["mod", "Moderate" + (S.reports.length ? " (" + S.reports.length + ")" : "")]);
   tabs.forEach(([k, l]) => { const b = el("button", S.tab === k ? "on" : "", l); b.onclick = () => go(k); t.append(b); });
 }
 function go(tab) {
   S.tab = tab;
-  ["feed", "members", "calendar", "mod"].forEach(k => $(k).classList.toggle("hidden", k !== tab));
+  ["feed", "members", "calendar", "dms", "mod"].forEach(k => $(k).classList.toggle("hidden", k !== tab));
   renderTabs();
 }
 
@@ -382,6 +386,7 @@ async function toggleLike(p, liked) {
 async function report(p) {
   try {
     await addDoc(collection(db, "reports"), { post: p.id, by: S.user.uid, text: p.text, classId: S.cls.classId, at: Date.now() });
+    sendReportEmail({ report_type: "Class post", reporter: S.profile.name, reporter_uid: S.user.uid, classroom: S.cls.name, reason: "Reported from the class feed", message: p.text, convo_id: S.cls.classId });
     toast("Reported. The teacher will review it.");
   } catch (e) { toast("Could not report."); }
 }
@@ -409,6 +414,11 @@ function renderMembers() {
     if (u.bio) info.append(el("span", "", u.bio));
     if (u.contactEmail) info.append(el("span", "", u.contactEmail));
     r.append(info);
+    if (isStudent() && m.uid !== S.user.uid && u.role === "student") {
+      const mb = el("button", "btn small", "Message");
+      mb.onclick = () => startDM(m.uid, u.name || "Student");
+      r.append(mb);
+    }
     box.append(r);
   });
 }
@@ -461,3 +471,228 @@ function renderReports() {
 
 $("menuBtn").onclick = () => { if (mobile()) appEl.classList.toggle("open"); else appEl.classList.toggle("collapsed"); };
 $("scrim").onclick = () => appEl.classList.remove("open");
+
+/* ===== Direct messages (students only) ===== */
+const EMOJIS = ["😀","😂","❤️","👍","🔥","😮","😢","🙏","🎉","😎","🤔","👏"];
+const REACTS = ["👍","❤️","😂","😮","😢","🙏"];
+const DM = { convs: [], convUnsub: null, msgUnsub: null, cur: null, msgs: [], reactOpen: null };
+
+function isStudent() { return !!S.profile && S.profile.role === "student"; }
+function convIdFor(a, b) { return [a, b].sort().join("_"); }
+function configured(v) { return !!v && !String(v).startsWith("PASTE"); }
+
+function closeChatSub() { if (DM.msgUnsub) DM.msgUnsub(); DM.msgUnsub = null; }
+function unsubConvs() {
+  if (DM.convUnsub) DM.convUnsub();
+  DM.convUnsub = null; closeChatSub();
+  DM.convs = []; DM.cur = null; DM.msgs = [];
+}
+function subscribeConvs() {
+  unsubConvs();
+  if (!isStudent()) return;
+  DM.convUnsub = onSnapshot(query(collection(db, "conversations"), where("participants", "array-contains", S.user.uid)),
+    s => { DM.convs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0)); renderConvs(); }, onErr);
+}
+
+function renderConvs() {
+  const box = $("convList"); box.textContent = "";
+  if (!DM.convs.length) box.append(el("p", "note", "No conversations yet. Open Classmates and tap Message on a classmate."));
+  DM.convs.forEach(c => {
+    const other = c.participants.find(u => u !== S.user.uid);
+    const name = (c.names && c.names[other]) || (S.users[other] && S.users[other].name) || "Student";
+    const r = el("div", "row");
+    r.style.cursor = "pointer";
+    const info = el("div", "info");
+    info.append(el("b", "", name), el("span", "", c.lastText || ""));
+    r.append(info);
+    r.onclick = () => openChat(c.id, other, name);
+    box.append(r);
+  });
+}
+
+async function startDM(otherUid, otherName) {
+  if (!S.cls) return toast("Join a classroom first.");
+  const me = S.user.uid, id = convIdFor(me, otherUid);
+  try {
+    let exists = false;
+    try { exists = (await getDoc(doc(db, "conversations", id))).exists(); } catch (e) {}
+    if (!exists) {
+      await setDoc(doc(db, "conversations", id), {
+        participants: [me, otherUid], classId: S.cls.classId,
+        names: { [me]: S.profile.name || "Student", [otherUid]: otherName },
+        createdAt: Date.now(), lastAt: Date.now(), lastText: ""
+      });
+    }
+  } catch (e) { return toast("Could not start a conversation with this classmate."); }
+  go("dms");
+  openChat(id, otherUid, otherName);
+}
+
+function openChat(id, otherUid, otherName) {
+  DM.cur = { id, other: otherUid, name: otherName };
+  DM.reactOpen = null;
+  $("convList").classList.add("hidden");
+  $("chat").classList.remove("hidden");
+  $("chatName").textContent = otherName;
+  $("emojiBar").classList.add("hidden");
+  $("gifPanel").classList.add("hidden");
+  closeChatSub();
+  DM.msgUnsub = onSnapshot(query(collection(db, "conversations", id, "messages")), s => {
+    DM.msgs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(a.createdAt) - ms(b.createdAt));
+    renderMsgs();
+    markReceipts();
+  }, onErr);
+}
+$("backChat").onclick = () => {
+  closeChatSub(); DM.cur = null; DM.msgs = [];
+  $("chat").classList.add("hidden");
+  $("convList").classList.remove("hidden");
+};
+
+function renderMsgs() {
+  const box = $("msgs"); box.textContent = "";
+  if (!DM.cur) return;
+  const me = S.user.uid, other = DM.cur.other;
+  const mine = DM.msgs.filter(m => m.from === me);
+  const lastMine = mine[mine.length - 1];
+  DM.msgs.forEach(m => {
+    const isMe = m.from === me;
+    const b = el("div", "bubble " + (isMe ? "me" : "them"));
+    if (!isMe) b.append(el("div", "bsender", (S.users[m.from] && S.users[m.from].name) || DM.cur.name));
+    if (m.type === "gif" && m.gifUrl) { const g = el("img", "gif"); g.src = m.gifUrl; g.alt = "GIF"; b.append(g); }
+    if (m.text) b.append(el("div", "btext", m.text));
+    b.append(el("div", "bmeta", when(m.createdAt) + (m.editedAt ? " · edited" : "")));
+
+    const counts = {};
+    Object.values(m.reactions || {}).forEach(e => { counts[e] = (counts[e] || 0) + 1; });
+    if (Object.keys(counts).length) {
+      const rx = el("div", "rx");
+      Object.entries(counts).forEach(([e, n]) => rx.append(el("span", "chip", n > 1 ? e + " " + n : e)));
+      b.append(rx);
+    }
+
+    const act = el("div", "bact");
+    const rb = el("button", "", "React");
+    rb.onclick = () => { DM.reactOpen = DM.reactOpen === m.id ? null : m.id; renderMsgs(); };
+    act.append(rb);
+    if (isMe && m.type === "text") { const eb = el("button", "", "Edit"); eb.onclick = () => editMsg(m); act.append(eb); }
+    if (!isMe) { const pb = el("button", "", "Report"); pb.onclick = () => reportDM(m); act.append(pb); }
+    b.append(act);
+
+    if (DM.reactOpen === m.id) {
+      const bar = el("div", "react-bar");
+      REACTS.forEach(e => { const x = el("button", "", e); x.onclick = () => toggleReact(m, e); bar.append(x); });
+      b.append(bar);
+    }
+    box.append(b);
+
+    if (isMe && m === lastMine) {
+      const status = (m.readBy && m.readBy[other]) ? "Read" : ((m.deliveredTo && m.deliveredTo[other]) ? "Delivered" : "Sent");
+      box.append(el("div", "receipt", status));
+    }
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+async function markReceipts() {
+  if (!DM.cur) return;
+  const me = S.user.uid;
+  const visible = document.visibilityState === "visible" && !$("chat").classList.contains("hidden");
+  for (const m of DM.msgs) {
+    if (m.from === me) continue;
+    const upd = {};
+    if (!(m.deliveredTo && m.deliveredTo[me])) upd["deliveredTo." + me] = Date.now();
+    if (visible && !(m.readBy && m.readBy[me])) upd["readBy." + me] = Date.now();
+    if (Object.keys(upd).length) updateDoc(doc(db, "conversations", DM.cur.id, "messages", m.id), upd).catch(() => {});
+  }
+}
+
+async function toggleReact(m, e) {
+  const me = S.user.uid;
+  const current = (m.reactions || {})[me];
+  try {
+    await updateDoc(doc(db, "conversations", DM.cur.id, "messages", m.id), { ["reactions." + me]: current === e ? deleteField() : e });
+    DM.reactOpen = null;
+  } catch (err) { toast("Could not react."); }
+}
+
+async function editMsg(m) {
+  const t = window.prompt("Edit your message", m.text || "");
+  if (t === null) return;
+  const text = t.trim();
+  if (!text) return toast("Message cannot be empty.");
+  try {
+    await updateDoc(doc(db, "conversations", DM.cur.id, "messages", m.id), { text: text.slice(0, 500), editedAt: Date.now() });
+  } catch (err) { toast("Could not edit."); }
+}
+
+async function sendDM(type, text, gifUrl) {
+  if (!DM.cur) return;
+  const me = S.user.uid, id = DM.cur.id;
+  const preview = type === "gif" ? "GIF" : text.slice(0, 80);
+  try {
+    await addDoc(collection(db, "conversations", id, "messages"), {
+      from: me, type, text: text || "", gifUrl: gifUrl || null, createdAt: serverTimestamp(),
+      editedAt: null, readBy: {}, deliveredTo: {}, reactions: {}
+    });
+    await updateDoc(doc(db, "conversations", id), { lastAt: Date.now(), lastText: preview });
+  } catch (err) { toast("Could not send."); }
+}
+
+$("dmSend").onclick = async () => {
+  const i = $("dmInput"), t = i.value.trim();
+  if (!t) return;
+  i.value = "";
+  await sendDM("text", t, null);
+};
+
+EMOJIS.forEach(e => {
+  const b = el("button", "", e);
+  b.onclick = () => { $("dmInput").value += e; $("dmInput").focus(); };
+  $("emojiBar").append(b);
+});
+$("dmEmoji").onclick = () => $("emojiBar").classList.toggle("hidden");
+
+$("dmGif").onclick = async () => {
+  if (!configured(settings.giphyKey)) return toast("GIFs are not set up yet.");
+  const q = window.prompt("Search for a GIF");
+  if (!q) return;
+  const panel = $("gifPanel");
+  panel.textContent = ""; panel.classList.remove("hidden");
+  try {
+    const r = await fetch("https://api.giphy.com/v1/gifs/search?api_key=" + encodeURIComponent(settings.giphyKey) + "&q=" + encodeURIComponent(q) + "&limit=12&rating=pg");
+    const j = await r.json();
+    if (!j.data || !j.data.length) panel.append(el("p", "note", "No GIFs found."));
+    (j.data || []).forEach(g => {
+      const url = g.images.fixed_height_small.url;
+      const img = el("img", "gif-pick"); img.src = url; img.alt = "GIF";
+      img.onclick = () => { panel.classList.add("hidden"); sendDM("gif", "", url); };
+      panel.append(img);
+    });
+  } catch (e) { panel.append(el("p", "note", "Could not load GIFs.")); }
+};
+
+async function sendReportEmail(params) {
+  if (!configured(settings.emailjsPublicKey)) return false;
+  try {
+    const r = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service_id: settings.emailjsServiceId, template_id: settings.emailjsTemplateId, user_id: settings.emailjsPublicKey,
+        template_params: { ...params, time: new Date().toLocaleString() }
+      })
+    });
+    return r.ok;
+  } catch (e) { return false; }
+}
+
+async function reportDM(m) {
+  const reason = window.prompt("Why are you reporting this message?");
+  if (reason === null) return;
+  const text = m.text || (m.type === "gif" ? "[GIF]" : "");
+  try {
+    await addDoc(collection(db, "dmReports"), { by: S.user.uid, convId: DM.cur.id, messageId: m.id, text: text.slice(0, 500), reason: reason.slice(0, 300), at: Date.now() });
+    const sent = await sendReportEmail({ report_type: "Direct message", reporter: S.profile.name, reporter_uid: S.user.uid, classroom: S.cls ? S.cls.name : "", reason, message: text, convo_id: DM.cur.id });
+    toast(sent ? "Report sent. Thank you." : "Report saved. Email is not set up yet.");
+  } catch (e) { toast("Could not send the report."); }
+}
