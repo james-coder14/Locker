@@ -182,7 +182,6 @@ async function saveProfile() {
   const contactEmail = $("pEmail").value.trim();
   const username = $("pUsername").value.trim().toLowerCase();
   const role = $("pRole").value;
-  const theme = ($("pTheme") && $("pTheme").value) || "default";
   if (!name) { onboardMsg("Please enter your name."); return false; }
   if (!/^[a-z0-9_]{3,20}$/.test(username)) { onboardMsg("Username must be 3 to 20 letters, numbers, or underscores."); return false; }
   if (role !== "teacher" && role !== "student") { onboardMsg("Please choose Teacher or Student."); return false; }
@@ -193,6 +192,7 @@ async function saveProfile() {
     catch (e) { onboardMsg("That username is taken. Try another one."); return false; }
     if (oldUsername) await deleteDoc(doc(db, "usernames", oldUsername)).catch(() => {});
   }
+  const theme = ($("pTheme") && $("pTheme").value) || "default";
   const data = { name, bio, contactEmail, username, role, theme, photo: S.photoData || "", onboarded: !!(S.profile && S.profile.onboarded), updatedAt: Date.now() };
   try { await setDoc(doc(db, "users", S.user.uid), data); }
   catch (e) { onboardMsg("Could not save. Check your internet and try again."); return false; }
@@ -331,19 +331,50 @@ function renderProfileCard() {
   $("sideName").textContent = p.name || "Student";
   $("sideBio").textContent = (p.username ? "@" + p.username : "") + (p.bio ? (p.username ? " · " : "") + p.bio : "");
   const card = $("profileCard");
-  if (card) {
-    card.className = "profile-card" + (p.theme && p.theme !== "default" ? " theme-" + p.theme : "");
-  }
+  if (card) card.className = "profile-card" + (p.theme && p.theme !== "default" ? " theme-" + p.theme : "");
 }
 
 function renderSideClasses() {
   const box = $("classList"); box.textContent = "";
   if (!S.classes.length) box.append(el("p", "note", "No classrooms yet."));
   S.classes.forEach(c => {
+    const row = el("div", "class-row");
     const b = el("button", "item" + (S.cls && S.cls.classId === c.classId ? " on" : ""), c.name);
     b.onclick = () => { selectClass(c); if (mobile()) appEl.classList.remove("open"); };
-    box.append(b);
+    row.append(b);
+    if (isOwnerOf(c) || S.mod) {
+      const del = el("button", "class-del", "🗑");
+      del.title = "Delete classroom";
+      del.onclick = (e) => {
+        e.stopPropagation();
+        deleteClassroom(c);
+      };
+      row.append(del);
+    }
+    box.append(row);
   });
+}
+
+async function deleteClassroom(cls) {
+  if (!cls) return;
+  if (!(isOwnerOf(cls) || S.mod)) return toast("Only the owner can delete this classroom.");
+  const typed = window.prompt("To delete this classroom, type its name exactly:\n" + cls.name);
+  if (typed === null) return;
+  if (typed.trim() !== cls.name) return toast("The name did not match. Classroom not deleted.");
+  try {
+    const mems = await getDocs(query(collection(db, "members"), where("classId", "==", cls.classId)));
+    for (const d of mems.docs) {
+      if (d.id !== cls.classId + "_" + S.user.uid) await deleteDoc(d.ref).catch(() => {});
+    }
+    await deleteDoc(doc(db, "classCodes", cls.code)).catch(() => {});
+    await deleteDoc(doc(db, "members", cls.classId + "_" + S.user.uid)).catch(() => {});
+    await deleteDoc(doc(db, "classes", cls.classId));
+    toast("Classroom deleted.");
+    if (S.cls && S.cls.classId === cls.classId) S.cls = null;
+    await loadClasses();
+    renderSideClasses();
+    selectClass(S.classes[0] || null);
+  } catch (e) { toast("Could not delete the classroom. Try again."); }
 }
 
 function selectClass(c) {
@@ -706,7 +737,7 @@ async function startDM(otherUid, otherName) {
       return toast("Could not start a conversation with this person.");
     }
   }
-  $("profileModal").classList.add("hidden");
+  if ($("profileModal")) $("profileModal").classList.add("hidden");
   go("dms");
   openChat(id, otherUid, otherName);
 }
@@ -903,17 +934,14 @@ async function reportDM(m) {
   } catch (e) { toast("Could not send the report."); }
 }
 
-/* ---------- Profile view + Block ---------- */
+/* ---------- Profile view + Block + Remove Mate ---------- */
 async function openProfile(uid) {
   if (!uid) return;
   let u = S.users[uid];
   if (!u) {
     try {
       const snap = await getDoc(doc(db, "users", uid));
-      if (snap.exists()) {
-        u = snap.data();
-        S.users[uid] = u;
-      }
+      if (snap.exists()) { u = snap.data(); S.users[uid] = u; }
     } catch (e) {}
   }
   if (!u) return toast("Could not load that profile.");
@@ -931,14 +959,33 @@ async function openProfile(uid) {
   view.append(card);
 
   const actions = el("div", "form");
+
+  // Message (students only)
   if (uid !== S.user.uid && isStudent() && u.role === "student") {
     const msgBtn = el("button", "btn wide", "Message");
     msgBtn.onclick = () => startDM(uid, u.name || "Student");
     actions.append(msgBtn);
   }
+
+  // Remove Mate (if they are accepted mates)
+  const mateDoc = DM.mates.find(m => m.status === "accepted" && m.participants.includes(uid));
+  if (mateDoc) {
+    const rmMate = el("button", "btn wide", "Remove Mate");
+    rmMate.onclick = async () => {
+      if (!window.confirm("Remove " + (u.name || "this person") + " as a Mate?")) return;
+      try {
+        await deleteDoc(doc(db, "mates", mateDoc.id));
+        toast("Mate removed.");
+        $("profileModal").classList.add("hidden");
+      } catch (e) { toast("Could not remove Mate."); }
+    };
+    actions.append(rmMate);
+  }
+
+  // Block / Unblock
   if (uid !== S.user.uid) {
     const blocked = await isBlocked(uid);
-    const blkBtn = el("button", "btn wide", blocked ? "Unblock" : "Block");
+    const blkBtn = el("button", "btn wide" + (blocked ? "" : " danger"), blocked ? "Unblock" : "Block");
     blkBtn.onclick = async () => {
       if (blocked) {
         await unblockUser(uid);
@@ -952,6 +999,22 @@ async function openProfile(uid) {
     };
     actions.append(blkBtn);
   }
+
+  // Mod: delete profile (dangerous)
+  if (S.mod && uid !== S.user.uid) {
+    const delBtn = el("button", "btn wide danger", "Delete profile (mod)");
+    delBtn.onclick = async () => {
+      if (!window.confirm("PERMANENTLY delete this user's profile data? This cannot be undone easily.")) return;
+      try {
+        await deleteDoc(doc(db, "users", uid));
+        if (u.username) await deleteDoc(doc(db, "usernames", u.username)).catch(() => {});
+        toast("Profile data deleted.");
+        $("profileModal").classList.add("hidden");
+      } catch (e) { toast("Could not delete profile."); }
+    };
+    actions.append(delBtn);
+  }
+
   view.append(actions);
   $("profileModal").classList.remove("hidden");
 }
@@ -959,27 +1022,23 @@ async function openProfile(uid) {
 $("profileClose").onclick = () => $("profileModal").classList.add("hidden");
 
 async function isBlocked(otherUid) {
-  const me = S.user.uid;
   try {
-    const a = await getDoc(doc(db, "blocks", me + "_" + otherUid));
-    if (a.exists()) return true;
-  } catch (e) {}
-  return false;
+    const a = await getDoc(doc(db, "blocks", S.user.uid + "_" + otherUid));
+    return a.exists();
+  } catch (e) { return false; }
 }
 
 async function blockUser(otherUid) {
-  const me = S.user.uid;
   try {
-    await setDoc(doc(db, "blocks", me + "_" + otherUid), {
-      blocker: me, blocked: otherUid, at: Date.now()
+    await setDoc(doc(db, "blocks", S.user.uid + "_" + otherUid), {
+      blocker: S.user.uid, blocked: otherUid, at: Date.now()
     });
   } catch (e) { toast("Could not block."); }
 }
 
 async function unblockUser(otherUid) {
-  const me = S.user.uid;
   try {
-    await deleteDoc(doc(db, "blocks", me + "_" + otherUid));
+    await deleteDoc(doc(db, "blocks", S.user.uid + "_" + otherUid));
   } catch (e) { toast("Could not unblock."); }
 }
 

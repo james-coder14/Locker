@@ -132,3 +132,13 @@ nav.tabs button.on{color:var(--ink);box-shadow:inset 0 2px 0 var(--ink)}
 .typing{font-size:12px;color:var(--muted);min-height:18px;padding:0 4px}
 #profileView .profile-card{padding:0 0 12px;margin-bottom:8px;background:none;border-bottom:1px solid var(--line)}
 #profileView .profile-card.theme-ocean,#profileView .profile-card.theme-forest,#profileView .profile-card.theme-sunset,#profileView .profile-card.theme-rose{padding:12px;margin:0 0 12px}
+
+/* Class list with delete */
+.class-row{display:flex;align-items:center}
+.class-row .item{flex:1}
+.class-del{background:none;border:none;color:var(--muted);font-size:16px;padding:8px 12px;cursor:pointer;min-height:0;line-height:1}
+.class-del:hover{color:#e74c3c}
+
+/* Profile modal actions */
+#profileView .form{margin-top:12px;gap:8px}
+#profileView .btn.danger{background:#5c1a1a;color:#ffb4b4}
