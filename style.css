@@ -144,3 +144,21 @@ nav.tabs button.on{color:var(--ink);box-shadow:inset 0 2px 0 var(--ink)}
 /* Profile modal actions */
 #profileView .form{margin-top:12px;gap:8px}
 #profileView .btn.danger{background:#5c1a1a;color:#ffb4b4}
+
+/* Comments */
+.comments{margin:8px 0 0;padding:8px 0 0;border-top:1px solid var(--line)}
+.comment{font-size:14px;padding:4px 0;color:var(--ink);line-height:1.4}
+.comment b{margin-right:6px}
+.comment .link{float:right;padding:0 4px;min-height:auto;font-size:14px}
+.comment-box{display:flex;gap:8px;margin-top:8px;align-items:center}
+.comment-box .field{flex:1;padding:10px;min-height:0}
+.comment-box .btn{flex-shrink:0}
+
+/* Polls */
+.poll-opt{display:block;width:100%;text-align:left;background:var(--raised);border:1px solid var(--line);color:var(--ink);padding:10px 12px;margin:6px 0;font:inherit;cursor:pointer}
+.poll-opt.on{border-color:var(--ink);background:#2a2a2a}
+.poll .meta{margin-bottom:6px}
+
+/* Online */
+.online-dot{color:#3ddc84;font-size:10px;margin-left:4px}
+.online-text{color:#3ddc84;font-size:13px}

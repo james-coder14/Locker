@@ -32,7 +32,7 @@ function isStudent() { return !!S.profile && S.profile.role === "student"; }
 function convIdFor(a, b) { return [a, b].sort().join("_"); }
 
 /* ---------- State ---------- */
-const S = { user: null, profile: null, mod: false, classes: [], cls: null, posts: [], likes: [], events: [], reports: [], members: [], users: {}, clsUnsubs: [], tab: "feed", onboardMode: "new", photoData: "", pendingClassId: null, myRole: null };
+const S = { user: null, profile: null, mod: false, classes: [], cls: null, posts: [], likes: [], events: [], reports: [], members: [], comments: {}, polls: [], users: {}, clsUnsubs: [], tab: "feed", onboardMode: "new", photoData: "", pendingClassId: null, myRole: null };
 const DM = { convs: [], convUnsub: null, msgs: [], msgUnsub: null, cur: null, reactOpen: null, menuOpen: null, mates: [], matesUnsub: null };
 const EMOJIS = ["😀", "😂", "❤️", "👍", "🔥", "😮", "😢", "🙏", "🎉", "😎", "🤔", "👏"];
 const REACTS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -149,8 +149,14 @@ function startOnboarding(mode) {
   $("pName").value = p.name || (S.user && S.user.displayName) || "";
   $("pUsername").value = p.username || "";
   $("pRole").value = p.role || "";
+  // Once onboarded, role is locked (stops students becoming teachers)
+  if ($("pRole")) {
+    $("pRole").disabled = !!(p.onboarded);
+    $("pRole").title = p.onboarded ? "Role cannot be changed after setup" : "";
+  }
   if ($("pTheme")) $("pTheme").value = p.theme || "default";
   $("pBio").value = p.bio || "";
+  if ($("pStatus")) $("pStatus").value = p.status || "";
   $("pEmail").value = p.contactEmail || (S.user && S.user.email) || "";
   stepTo(1);
 }
@@ -181,7 +187,11 @@ async function saveProfile() {
   const bio = $("pBio").value.trim();
   const contactEmail = $("pEmail").value.trim();
   const username = $("pUsername").value.trim().toLowerCase();
-  const role = $("pRole").value;
+  let role = $("pRole").value;
+  // HARD LOCK: once onboarded, role cannot change
+  if (S.profile && S.profile.onboarded && S.profile.role) {
+    role = S.profile.role;
+  }
   if (!name) { onboardMsg("Please enter your name."); return false; }
   if (!/^[a-z0-9_]{3,20}$/.test(username)) { onboardMsg("Username must be 3 to 20 letters, numbers, or underscores."); return false; }
   if (role !== "teacher" && role !== "student") { onboardMsg("Please choose Teacher or Student."); return false; }
@@ -193,10 +203,17 @@ async function saveProfile() {
     if (oldUsername) await deleteDoc(doc(db, "usernames", oldUsername)).catch(() => {});
   }
   const theme = ($("pTheme") && $("pTheme").value) || "default";
-  const data = { name, bio, contactEmail, username, role, theme, photo: S.photoData || "", onboarded: !!(S.profile && S.profile.onboarded), updatedAt: Date.now() };
-  try { await setDoc(doc(db, "users", S.user.uid), data); }
+  const status = ($("pStatus") && $("pStatus").value.trim().slice(0, 40)) || "";
+  const data = {
+    name, bio, contactEmail, username, role, theme, status,
+    photo: S.photoData || "",
+    onboarded: !!(S.profile && S.profile.onboarded),
+    updatedAt: Date.now(),
+    lastSeen: Date.now()
+  };
+  try { await setDoc(doc(db, "users", S.user.uid), data, { merge: true }); }
   catch (e) { onboardMsg("Could not save. Check your internet and try again."); return false; }
-  S.profile = data; S.users[S.user.uid] = data;
+  S.profile = { ...S.profile, ...data }; S.users[S.user.uid] = S.profile;
   updateProfile(S.user, { displayName: name }).catch(() => {});
   return true;
 }
@@ -304,6 +321,7 @@ async function enterApp(selectId) {
   resetClass();
   show("app");
   renderProfileCard();
+  startLastSeenHeartbeat();
   subscribeConvs();
   subscribeMates();
   try { await loadClasses(); } catch (e) { S.classes = []; toast("Could not load your classrooms."); }
@@ -329,9 +347,38 @@ function renderProfileCard() {
   const img = $("sideAvatar");
   img.src = p.photo || ""; img.classList.toggle("empty", !p.photo);
   $("sideName").textContent = p.name || "Student";
-  $("sideBio").textContent = (p.username ? "@" + p.username : "") + (p.bio ? (p.username ? " · " : "") + p.bio : "");
+  let line = p.username ? "@" + p.username : "";
+  if (p.status) line += (line ? " · " : "") + p.status;
+  else if (p.bio) line += (line ? " · " : "") + p.bio;
+  $("sideBio").textContent = line;
   const card = $("profileCard");
   if (card) card.className = "profile-card" + (p.theme && p.theme !== "default" ? " theme-" + p.theme : "");
+}
+
+function isOnline(u) {
+  if (!u || !u.lastSeen) return false;
+  return (Date.now() - (u.lastSeen || 0)) < 3 * 60 * 1000; // 3 min
+}
+function lastSeenText(u) {
+  if (!u || !u.lastSeen) return "";
+  if (isOnline(u)) return "Online";
+  const mins = Math.floor((Date.now() - u.lastSeen) / 60000);
+  if (mins < 60) return "Active " + mins + "m ago";
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return "Active " + hrs + "h ago";
+  return "Active " + Math.floor(hrs / 24) + "d ago";
+}
+
+// Keep lastSeen fresh while app is open
+let lastSeenTimer = null;
+function startLastSeenHeartbeat() {
+  if (lastSeenTimer) clearInterval(lastSeenTimer);
+  const beat = () => {
+    if (!S.user) return;
+    updateDoc(doc(db, "users", S.user.uid), { lastSeen: Date.now() }).catch(() => {});
+  };
+  beat();
+  lastSeenTimer = setInterval(beat, 60 * 1000);
 }
 
 function renderSideClasses() {
@@ -382,7 +429,7 @@ async function deleteClassroom(cls) {
 function selectClass(c) {
   resetClass();
   S.cls = c || null;
-  S.posts = []; S.likes = []; S.events = []; S.reports = []; S.members = [];
+  S.posts = []; S.likes = []; S.events = []; S.reports = []; S.members = []; S.comments = {}; S.polls = [];
   renderSideClasses();
   $("title").textContent = c ? c.name : "No classroom yet";
   $("classCode").textContent = c ? "Code " + c.code : "";
@@ -404,6 +451,20 @@ function selectClass(c) {
   S.clsUnsubs.push(onSnapshot(query(collection(db, "members"), where("classId", "==", cid)), s => {
     S.members = s.docs.map(d => ({ id: d.id, ...d.data() })); renderMembers();
     ensureUsers(S.members.map(m => m.uid));
+  }, onErr));
+  S.clsUnsubs.push(onSnapshot(query(collection(db, "comments"), where("classId", "==", cid), limit(300)), s => {
+    S.comments = {};
+    s.docs.forEach(d => {
+      const c = { id: d.id, ...d.data() };
+      if (!S.comments[c.postId]) S.comments[c.postId] = [];
+      S.comments[c.postId].push(c);
+    });
+    Object.keys(S.comments).forEach(k => S.comments[k].sort((a, b) => ms(a.createdAt) - ms(b.createdAt)));
+    renderPosts();
+  }, onErr));
+  S.clsUnsubs.push(onSnapshot(query(collection(db, "polls"), where("classId", "==", cid), limit(50)), s => {
+    S.polls = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt));
+    renderPosts();
   }, onErr));
   S.clsUnsubs.push(onSnapshot(query(collection(db, "events"), where("classId", "==", cid)), s => {
     S.events = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.at || 0) - (b.at || 0));
@@ -449,28 +510,121 @@ function go(tab) {
 function renderPosts() {
   const box = $("posts"); box.textContent = "";
   if (!S.cls) { box.append(el("p", "note", "You're not in a classroom yet. Open the menu and tap + Join or create a classroom.")); return; }
-  if (!S.posts.length) box.append(el("p", "note", "No posts yet. Say hi to your classmates!"));
-  S.posts.forEach(p => {
+
+  // Merge posts + polls by time
+  const feed = [
+    ...S.posts.map(p => ({ kind: "post", at: ms(p.createdAt), item: p })),
+    ...S.polls.map(p => ({ kind: "poll", at: ms(p.createdAt), item: p }))
+  ].sort((a, b) => b.at - a.at);
+
+  if (!feed.length) box.append(el("p", "note", "No posts yet. Say hi to your classmates!"));
+
+  feed.forEach(entry => {
+    if (entry.kind === "poll") {
+      box.append(renderPollCard(entry.item));
+      return;
+    }
+    const p = entry.item;
     const u = S.users[p.author] || {};
     const d = el("div", "post");
     const meta = el("div", "meta");
     meta.append(avatar(u.photo, "sm"), el("b", "", p.authorName || u.name || "Student"), document.createTextNode(when(p.createdAt)));
+    if (isOnline(u)) meta.append(el("span", "online-dot", "●"));
     const n = S.likes.filter(l => l.post === p.id).length;
     const liked = S.likes.some(l => l.id === p.id + "_" + S.user.uid);
+    const comments = S.comments[p.id] || [];
     const a = el("div", "actions");
     const lb = el("button", liked ? "on" : "", (liked ? "Liked " : "Like ") + n);
     lb.onclick = () => toggleLike(p, liked);
+    const cb = el("button", "", "Comment" + (comments.length ? " (" + comments.length + ")" : ""));
+    cb.onclick = () => toggleCommentBox(p.id);
     const rb = el("button", "", "Report");
     rb.onclick = () => report(p);
-    a.append(lb, rb);
+    a.append(lb, cb, rb);
     if (p.author === S.user.uid || isOwnerOf(S.cls) || S.myRole === "admin" || S.mod) {
       const x = el("button", "", "Delete");
       x.onclick = () => deleteDoc(doc(db, "posts", p.id)).catch(onErr);
       a.append(x);
     }
     d.append(meta, el("p", "", p.text), a);
+
+    // Comments list
+    if (comments.length) {
+      const cl = el("div", "comments");
+      comments.forEach(c => {
+        const row = el("div", "comment");
+        row.append(el("b", "", c.authorName || "Student"), document.createTextNode(" " + c.text));
+        if (c.author === S.user.uid || isOwnerOf(S.cls) || S.mod) {
+          const xd = el("button", "link small", "×");
+          xd.onclick = () => deleteDoc(doc(db, "comments", c.id)).catch(onErr);
+          row.append(xd);
+        }
+        cl.append(row);
+      });
+      d.append(cl);
+    }
+    // Comment input (hidden until toggled)
+    const cbox = el("div", "comment-box hidden");
+    cbox.id = "cbox-" + p.id;
+    const cin = el("input", "field");
+    cin.placeholder = "Write a comment...";
+    cin.maxLength = 400;
+    const csend = el("button", "btn small", "Send");
+    csend.onclick = () => sendComment(p.id, cin);
+    cin.addEventListener("keydown", e => { if (e.key === "Enter") sendComment(p.id, cin); });
+    cbox.append(cin, csend);
+    d.append(cbox);
+
     box.append(d);
   });
+}
+
+function toggleCommentBox(postId) {
+  const box = $("cbox-" + postId);
+  if (box) box.classList.toggle("hidden");
+}
+
+async function sendComment(postId, input) {
+  const text = (input.value || "").trim();
+  if (!text || !S.cls) return;
+  try {
+    await addDoc(collection(db, "comments"), {
+      postId, classId: S.cls.classId, author: S.user.uid,
+      authorName: S.profile.name || "Student", text: text.slice(0, 400),
+      createdAt: serverTimestamp()
+    });
+    input.value = "";
+  } catch (e) { toast("Could not comment."); }
+}
+
+function renderPollCard(poll) {
+  const d = el("div", "post poll");
+  const u = S.users[poll.author] || {};
+  const meta = el("div", "meta");
+  meta.append(avatar(u.photo, "sm"), el("b", "", poll.authorName || u.name || "Student"), document.createTextNode(" · Poll · " + when(poll.createdAt)));
+  d.append(meta, el("p", "", poll.question));
+  const votes = poll.votes || {};
+  const total = Object.keys(votes).length;
+  const myVote = votes[S.user.uid];
+  (poll.options || []).forEach((opt, i) => {
+    const count = Object.values(votes).filter(v => v === i).length;
+    const pct = total ? Math.round((count / total) * 100) : 0;
+    const btn = el("button", "poll-opt" + (myVote === i ? " on" : ""), opt + (total ? " — " + pct + "% (" + count + ")" : ""));
+    btn.onclick = () => votePoll(poll, i);
+    d.append(btn);
+  });
+  if (poll.author === S.user.uid || isOwnerOf(S.cls) || S.mod) {
+    const x = el("button", "link small", "Delete poll");
+    x.onclick = () => deleteDoc(doc(db, "polls", poll.id)).catch(onErr);
+    d.append(x);
+  }
+  return d;
+}
+
+async function votePoll(poll, optionIndex) {
+  try {
+    await updateDoc(doc(db, "polls", poll.id), { ["votes." + S.user.uid]: optionIndex });
+  } catch (e) { toast("Could not vote."); }
 }
 async function toggleLike(p, liked) {
   const ref = doc(db, "likes", p.id + "_" + S.user.uid);
@@ -499,18 +653,28 @@ $("postBtn").onclick = async () => {
 function renderMembers() {
   const box = $("memberList"); box.textContent = "";
   if (!S.cls) return;
-  $("deleteClass").classList.toggle("hidden", !isOwnerOf(S.cls));
-  box.append(el("p", "note", S.members.length + " in this classroom"));
+  $("deleteClass").classList.toggle("hidden", !(isOwnerOf(S.cls) || S.mod));
+  const q = (($("memberSearch") && $("memberSearch").value) || "").trim().toLowerCase();
+  let list = [...S.members];
+  if (q) {
+    list = list.filter(m => {
+      const u = S.users[m.uid] || {};
+      return (u.name || "").toLowerCase().includes(q) || (u.username || "").toLowerCase().includes(q) || (u.bio || "").toLowerCase().includes(q);
+    });
+  }
+  box.append(el("p", "note", (q ? list.length + " found · " : "") + S.members.length + " in this classroom"));
   const roleLabel = { owner: "Teacher", admin: "Admin", student: "Student" };
   const rank = r => (r === "owner" ? 0 : r === "admin" ? 1 : 2);
-  [...S.members].sort((a, b) => rank(a.role) - rank(b.role)).forEach(m => {
+  list.sort((a, b) => rank(a.role) - rank(b.role)).forEach(m => {
     const u = S.users[m.uid] || {};
     const r = el("div", "row");
     r.style.cursor = "pointer";
     r.append(avatar(u.photo, "lg"));
     const info = el("div", "info");
-    info.append(el("b", "", u.name || "Student"));
-    info.append(el("span", "", (roleLabel[m.role] || "Student") + (u.username ? " · @" + u.username : "")));
+    const nameRow = el("b", "", (u.name || "Student") + (isOnline(u) ? " ●" : ""));
+    if (isOnline(u)) nameRow.style.color = "#3ddc84";
+    info.append(nameRow);
+    info.append(el("span", "", (roleLabel[m.role] || "Student") + (u.username ? " · @" + u.username : "") + (u.status ? " · " + u.status : "")));
     if (u.bio) info.append(el("span", "", u.bio));
     r.append(info);
     r.onclick = (e) => {
@@ -1138,6 +1302,9 @@ async function openProfile(uid) {
   const info = el("div", "info");
   info.append(el("b", "", u.name || "Student"));
   info.append(el("span", "", (u.username ? "@" + u.username : "") + (u.role ? " · " + (u.role === "teacher" ? "Teacher" : "Student") : "")));
+  const seen = lastSeenText(u);
+  if (seen) info.append(el("span", isOnline(u) ? "online-text" : "muted small", seen));
+  if (u.status) info.append(el("span", "", u.status));
   if (u.bio) info.append(el("span", "", u.bio));
   card.append(info);
   view.append(card);
@@ -1233,3 +1400,33 @@ if ($("openMessages")) $("openMessages").onclick = () => { go("dms"); if (mobile
 
 $("groupCancel").onclick = () => $("groupModal").classList.add("hidden");
 $("groupCreate").onclick = createGroupChat;
+
+/* ---------- Polls ---------- */
+if ($("pollBtn")) $("pollBtn").onclick = () => {
+  $("pollForm").classList.toggle("hidden");
+};
+if ($("pollCancel")) $("pollCancel").onclick = () => $("pollForm").classList.add("hidden");
+if ($("pollCreate")) $("pollCreate").onclick = async () => {
+  if (!S.cls) return;
+  const q = ($("pollQ").value || "").trim();
+  const opts = [$("pollO1").value, $("pollO2").value, $("pollO3").value, $("pollO4").value]
+    .map(s => (s || "").trim()).filter(Boolean);
+  if (!q) return toast("Enter a poll question.");
+  if (opts.length < 2) return toast("Need at least 2 options.");
+  try {
+    await addDoc(collection(db, "polls"), {
+      classId: S.cls.classId, author: S.user.uid, authorName: S.profile.name || "Student",
+      question: q.slice(0, 120), options: opts.slice(0, 4), votes: {}, createdAt: serverTimestamp()
+    });
+    $("pollQ").value = ""; $("pollO1").value = ""; $("pollO2").value = ""; $("pollO3").value = ""; $("pollO4").value = "";
+    $("pollForm").classList.add("hidden");
+    toast("Poll posted!");
+  } catch (e) { console.error(e); toast("Could not create poll."); }
+};
+
+/* ---------- Classmate search ---------- */
+if ($("memberSearch")) {
+  $("memberSearch").oninput = () => renderMembers();
+}
+
+// Patch renderMembers to filter by search - we need to modify it

@@ -59,6 +59,7 @@
         </select>
         <select class="field" id="pTheme"><option value="default">Theme: Gray</option><option value="ocean">Theme: Ocean</option><option value="forest">Theme: Forest</option><option value="sunset">Theme: Sunset</option><option value="rose">Theme: Rose</option></select>
         <textarea class="field" id="pBio" maxlength="300" rows="3" placeholder="Bio (a few words about you)"></textarea>
+        <input class="field" id="pStatus" maxlength="40" placeholder="Status (e.g. In class · busy)">
         <input class="field" id="pEmail" type="email" placeholder="Contact email">
         <button id="s1Next" class="btn wide">Next</button>
         <button id="s1Cancel" class="link wide hidden">Cancel</button>
@@ -139,10 +140,22 @@
     <div class="content">
       <section id="feed">
         <div class="composer"><input id="newPost" maxlength="2000" placeholder="Post to your classroom"><button id="postBtn">Post</button></div>
+        <button class="link" id="pollBtn" style="margin-bottom:8px">+ Create a poll</button>
+        <div id="pollForm" class="form-inline hidden">
+          <input class="field" id="pollQ" maxlength="120" placeholder="Poll question">
+          <input class="field" id="pollO1" maxlength="60" placeholder="Option 1">
+          <input class="field" id="pollO2" maxlength="60" placeholder="Option 2">
+          <input class="field" id="pollO3" maxlength="60" placeholder="Option 3 (optional)">
+          <input class="field" id="pollO4" maxlength="60" placeholder="Option 4 (optional)">
+          <button class="btn" id="pollCreate">Post poll</button>
+          <button class="link" id="pollCancel">Cancel</button>
+        </div>
         <div id="posts"></div>
         <p class="note">Posts show your name. Anyone can report a post, and reports are sent to the Locker team.</p>
       </section>
-      <section id="members" class="hidden"><div id="memberList"></div>
+      <section id="members" class="hidden">
+        <input class="field" id="memberSearch" placeholder="Search classmates..." style="margin:8px 0">
+        <div id="memberList"></div>
         <button class="link hidden" id="deleteClass">Delete this classroom</button></section>
       <section id="calendar" class="hidden">
         <div id="evForm" class="form hidden">
