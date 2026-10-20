@@ -80,7 +80,7 @@ $("toggleBtn").onclick = () => {
   $("nameIn").classList.toggle("hidden", !creating);
   $("authBtn").textContent = creating ? "Create account" : "Sign in";
   $("toggleBtn").textContent = creating ? "I already have an account" : "Create an account";
-  $("loginSub").textContent = creating ? "Make an account to get started." : "Sign in to continue.";
+  $("loginSub").textContent = creating ? "Make an account to get started." : "Welcome to Locker!";
   $("loginMsg").textContent = "";
 };
 $("authBtn").onclick = async () => {
@@ -149,6 +149,7 @@ function startOnboarding(mode) {
   $("pName").value = p.name || (S.user && S.user.displayName) || "";
   $("pUsername").value = p.username || "";
   $("pRole").value = p.role || "";
+  if ($("pTheme")) $("pTheme").value = p.theme || "default";
   $("pBio").value = p.bio || "";
   $("pEmail").value = p.contactEmail || (S.user && S.user.email) || "";
   stepTo(1);
@@ -181,6 +182,7 @@ async function saveProfile() {
   const contactEmail = $("pEmail").value.trim();
   const username = $("pUsername").value.trim().toLowerCase();
   const role = $("pRole").value;
+  const theme = ($("pTheme") && $("pTheme").value) || "default";
   if (!name) { onboardMsg("Please enter your name."); return false; }
   if (!/^[a-z0-9_]{3,20}$/.test(username)) { onboardMsg("Username must be 3 to 20 letters, numbers, or underscores."); return false; }
   if (role !== "teacher" && role !== "student") { onboardMsg("Please choose Teacher or Student."); return false; }
@@ -191,7 +193,7 @@ async function saveProfile() {
     catch (e) { onboardMsg("That username is taken. Try another one."); return false; }
     if (oldUsername) await deleteDoc(doc(db, "usernames", oldUsername)).catch(() => {});
   }
-  const data = { name, bio, contactEmail, username, role, photo: S.photoData || "", onboarded: !!(S.profile && S.profile.onboarded), updatedAt: Date.now() };
+  const data = { name, bio, contactEmail, username, role, theme, photo: S.photoData || "", onboarded: !!(S.profile && S.profile.onboarded), updatedAt: Date.now() };
   try { await setDoc(doc(db, "users", S.user.uid), data); }
   catch (e) { onboardMsg("Could not save. Check your internet and try again."); return false; }
   S.profile = data; S.users[S.user.uid] = data;
@@ -328,6 +330,10 @@ function renderProfileCard() {
   img.src = p.photo || ""; img.classList.toggle("empty", !p.photo);
   $("sideName").textContent = p.name || "Student";
   $("sideBio").textContent = (p.username ? "@" + p.username : "") + (p.bio ? (p.username ? " · " : "") + p.bio : "");
+  const card = $("profileCard");
+  if (card) {
+    card.className = "profile-card" + (p.theme && p.theme !== "default" ? " theme-" + p.theme : "");
+  }
 }
 
 function renderSideClasses() {
@@ -467,13 +473,17 @@ function renderMembers() {
   [...S.members].sort((a, b) => rank(a.role) - rank(b.role)).forEach(m => {
     const u = S.users[m.uid] || {};
     const r = el("div", "row");
+    r.style.cursor = "pointer";
     r.append(avatar(u.photo, "lg"));
     const info = el("div", "info");
     info.append(el("b", "", u.name || "Student"));
     info.append(el("span", "", (roleLabel[m.role] || "Student") + (u.username ? " · @" + u.username : "")));
     if (u.bio) info.append(el("span", "", u.bio));
-    if (u.contactEmail) info.append(el("span", "", u.contactEmail));
     r.append(info);
+    r.onclick = (e) => {
+      if (e.target.closest("select, button")) return;
+      openProfile(m.uid);
+    };
     if (isOwnerOf(S.cls) && m.role !== "owner") {
       const sel = el("select", "field");
       [["student", "Student"], ["admin", "Admin"]].forEach(([v, label]) => {
@@ -485,20 +495,14 @@ function renderMembers() {
         .then(() => toast("Role updated."))
         .catch(() => toast("Could not change role."));
       const rm = el("button", "btn small", "Remove");
-      rm.onclick = () => {
+      rm.onclick = (e) => {
+        e.stopPropagation();
         if (!window.confirm("Remove " + (u.name || "this person") + " from the classroom?")) return;
         deleteDoc(doc(db, "members", m.id)).then(() => toast("Removed.")).catch(() => toast("Could not remove."));
       };
       const act = el("div", "member-actions");
       act.append(sel, rm);
       r.append(act);
-    }
-    if (isStudent() && m.uid !== S.user.uid && u.role === "student") {
-      const mb = el("button", "btn small", "Message");
-      mb.onclick = () => startDM(m.uid, u.name || "Student");
-      let act2 = r.querySelector(".member-actions");
-      if (!act2) { act2 = el("div", "member-actions"); r.append(act2); }
-      act2.append(mb);
     }
     box.append(r);
   });
@@ -602,10 +606,11 @@ function renderMates() {
   if (!accepted.length) { box.append(el("p", "note", "No Mates yet.")); return; }
   accepted.forEach(m => {
     const name = mateName(m);
+    const uid = mateOther(m);
     const b = el("button", "item", name);
     b.onclick = () => {
       if (mobile()) appEl.classList.remove("open");
-      if (isStudent()) startDM(mateOther(m), name); else toast("Only students can message Mates.");
+      openProfile(uid);
     };
     box.append(b);
   });
@@ -679,18 +684,29 @@ function renderConvs() {
   });
 }
 async function startDM(otherUid, otherName) {
+  if (!isStudent()) return toast("Only students can send messages.");
+  if (otherUid === S.user.uid) return;
   const me = S.user.uid, id = convIdFor(me, otherUid);
   let exists = false;
   try { exists = (await getDoc(doc(db, "conversations", id))).exists(); } catch (e) {}
   if (!exists) {
     try {
       await setDoc(doc(db, "conversations", id), {
-        participants: [me, otherUid], classId: S.cls ? S.cls.classId : "none",
+        participants: [me, otherUid],
+        classId: S.cls ? S.cls.classId : "none",
         names: { [me]: S.profile.name || "Student", [otherUid]: otherName },
-        createdAt: Date.now(), lastAt: Date.now(), lastText: ""
+        createdAt: Date.now(), lastAt: Date.now(), lastText: "",
+        typing: {}
       });
-    } catch (e) { return toast("Could not start a conversation with this person."); }
+    } catch (e) {
+      console.error("startDM error:", e);
+      if (e && e.code === "permission-denied") {
+        return toast("You can't message this person (blocked, not mates, or not in the same class).");
+      }
+      return toast("Could not start a conversation with this person.");
+    }
   }
+  $("profileModal").classList.add("hidden");
   go("dms");
   openChat(id, otherUid, otherName);
 }
@@ -887,6 +903,87 @@ async function reportDM(m) {
   } catch (e) { toast("Could not send the report."); }
 }
 
+/* ---------- Profile view + Block ---------- */
+async function openProfile(uid) {
+  if (!uid) return;
+  let u = S.users[uid];
+  if (!u) {
+    try {
+      const snap = await getDoc(doc(db, "users", uid));
+      if (snap.exists()) {
+        u = snap.data();
+        S.users[uid] = u;
+      }
+    } catch (e) {}
+  }
+  if (!u) return toast("Could not load that profile.");
+
+  const view = $("profileView");
+  view.textContent = "";
+  const theme = u.theme && u.theme !== "default" ? " theme-" + u.theme : "";
+  const card = el("div", "profile-card" + theme);
+  card.append(avatar(u.photo, "xl"));
+  const info = el("div", "info");
+  info.append(el("b", "", u.name || "Student"));
+  info.append(el("span", "", (u.username ? "@" + u.username : "") + (u.role ? " · " + (u.role === "teacher" ? "Teacher" : "Student") : "")));
+  if (u.bio) info.append(el("span", "", u.bio));
+  card.append(info);
+  view.append(card);
+
+  const actions = el("div", "form");
+  if (uid !== S.user.uid && isStudent() && u.role === "student") {
+    const msgBtn = el("button", "btn wide", "Message");
+    msgBtn.onclick = () => startDM(uid, u.name || "Student");
+    actions.append(msgBtn);
+  }
+  if (uid !== S.user.uid) {
+    const blocked = await isBlocked(uid);
+    const blkBtn = el("button", "btn wide", blocked ? "Unblock" : "Block");
+    blkBtn.onclick = async () => {
+      if (blocked) {
+        await unblockUser(uid);
+        toast("Unblocked.");
+      } else {
+        if (!window.confirm("Block " + (u.name || "this person") + "? They won't be able to message you or send Mate requests.")) return;
+        await blockUser(uid);
+        toast("Blocked.");
+      }
+      openProfile(uid);
+    };
+    actions.append(blkBtn);
+  }
+  view.append(actions);
+  $("profileModal").classList.remove("hidden");
+}
+
+$("profileClose").onclick = () => $("profileModal").classList.add("hidden");
+
+async function isBlocked(otherUid) {
+  const me = S.user.uid;
+  try {
+    const a = await getDoc(doc(db, "blocks", me + "_" + otherUid));
+    if (a.exists()) return true;
+  } catch (e) {}
+  return false;
+}
+
+async function blockUser(otherUid) {
+  const me = S.user.uid;
+  try {
+    await setDoc(doc(db, "blocks", me + "_" + otherUid), {
+      blocker: me, blocked: otherUid, at: Date.now()
+    });
+  } catch (e) { toast("Could not block."); }
+}
+
+async function unblockUser(otherUid) {
+  const me = S.user.uid;
+  try {
+    await deleteDoc(doc(db, "blocks", me + "_" + otherUid));
+  } catch (e) { toast("Could not unblock."); }
+}
+
 /* ---------- Menu and drawer ---------- */
 $("menuBtn").onclick = () => { if (mobile()) appEl.classList.toggle("open"); else appEl.classList.toggle("collapsed"); };
 $("scrim").onclick = () => appEl.classList.remove("open");
+if ($("openMessages")) $("openMessages").onclick = () => { go("dms"); if (mobile()) appEl.classList.remove("open"); };

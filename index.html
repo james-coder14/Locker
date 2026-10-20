@@ -10,19 +10,18 @@
 <body>
 
 <div id="login" class="screen hidden">
-  <div class="box">
-    <div class="mark big">L</div>
+  <div class="box login-box">
     <h1>Locker</h1>
-    <p id="loginSub" class="muted">Sign in to continue.</p>
+    <p id="loginSub" class="muted">Welcome to Locker!</p>
     <div class="form">
       <input class="field hidden" id="nameIn" maxlength="40" placeholder="Your name" autocomplete="name">
       <input class="field" id="emailIn" type="email" placeholder="Email" autocomplete="email">
       <input class="field" id="passIn" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
-      <button id="googleBtn" class="btn wide">Sign in with Google</button>
-      <p class="muted small center">or use email</p>
       <button id="authBtn" class="btn wide">Sign in</button>
       <button id="toggleBtn" class="link wide">Create an account</button>
       <button id="resetBtn" class="link wide">Forgot password?</button>
+      <p class="muted small center">or</p>
+      <button id="googleBtn" class="btn wide">Sign in with Google</button>
     </div>
     <p id="loginMsg" class="note"></p>
   </div>
@@ -30,7 +29,6 @@
 
 <div id="verify" class="screen hidden">
   <div class="box">
-    <div class="mark big">L</div>
     <h1>Check your email</h1>
     <p class="muted">We sent a verification link. Open it, then tap the button below.</p>
     <button id="checkBtn" class="btn wide">I verified my email</button>

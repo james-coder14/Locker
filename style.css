@@ -7,6 +7,8 @@ body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-s
 .small{font-size:13px}
 .center{text-align:center}
 .screen{position:fixed;inset:0;overflow-y:auto;display:flex;padding:24px}
+#login.screen{background:url("login-bg.jpg") center/cover no-repeat;background-color:#1a1a1a}
+#login .login-box{background:rgba(18,18,18,.88);backdrop-filter:blur(8px);padding:28px 24px;border:1px solid var(--line);max-width:380px}
 .box{width:100%;max-width:420px;margin:auto;text-align:center}
 .wide-box{text-align:left}
 .box h1{margin:12px 0 4px;font-size:30px;text-align:center}
