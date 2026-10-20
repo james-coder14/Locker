@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendEmailVerification, sendPasswordResetEmail, signOut }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendEmailVerification, sendPasswordResetEmail, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteField, deleteDoc, getDoc, getDocs, query, where, limit, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -60,6 +60,20 @@ const friendly = e => ({
   "auth/too-many-requests": "Too many tries. Wait a few minutes and try again.",
   "auth/network-request-failed": "No internet connection."
 }[e.code] || "Something went wrong. Please try again.");
+
+$("googleBtn").onclick = async () => {
+  $("loginMsg").textContent = "";
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  try { await signInWithPopup(auth, provider); }
+  catch (e) {
+    if (e.code === "auth/popup-blocked" || e.code === "auth/operation-not-supported-in-this-environment") {
+      await signInWithRedirect(auth, provider);
+    } else if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") {
+      $("loginMsg").textContent = "Google sign-in did not work. Your school may block it. Try email instead.";
+    }
+  }
+};
 
 $("toggleBtn").onclick = () => {
   creating = !creating;
@@ -475,12 +489,16 @@ function renderMembers() {
         if (!window.confirm("Remove " + (u.name || "this person") + " from the classroom?")) return;
         deleteDoc(doc(db, "members", m.id)).then(() => toast("Removed.")).catch(() => toast("Could not remove."));
       };
-      r.append(sel, rm);
+      const act = el("div", "member-actions");
+      act.append(sel, rm);
+      r.append(act);
     }
     if (isStudent() && m.uid !== S.user.uid && u.role === "student") {
       const mb = el("button", "btn small", "Message");
       mb.onclick = () => startDM(m.uid, u.name || "Student");
-      r.append(mb);
+      let act2 = r.querySelector(".member-actions");
+      if (!act2) { act2 = el("div", "member-actions"); r.append(act2); }
+      act2.append(mb);
     }
     box.append(r);
   });
@@ -828,6 +846,10 @@ $("dmGif").onclick = async () => {
   if (!q) return;
   const panel = $("gifPanel");
   panel.textContent = ""; panel.classList.remove("hidden");
+  const closeX = el("button", "gif-close", "✕");
+  closeX.title = "Close";
+  closeX.onclick = () => panel.classList.add("hidden");
+  panel.append(closeX);
   try {
     const r = await fetch("https://api.giphy.com/v1/gifs/search?api_key=" + encodeURIComponent(settings.giphyKey) + "&q=" + encodeURIComponent(q) + "&limit=12&rating=pg");
     const j = await r.json();
