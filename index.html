@@ -138,7 +138,7 @@
     </header>
     <div class="content">
       <section id="feed">
-        <div class="composer"><input id="newPost" maxlength="500" placeholder="Post to your classroom"><button id="postBtn">Post</button></div>
+        <div class="composer"><input id="newPost" maxlength="2000" placeholder="Post to your classroom"><button id="postBtn">Post</button></div>
         <div id="posts"></div>
         <p class="note">Posts show your name. Anyone can report a post, and reports are sent to the Locker team.</p>
       </section>
@@ -153,7 +153,9 @@
         <div id="events"></div>
       </section>
       <section id="dms" class="hidden">
-        <div id="convList"></div>
+        <div id="convList">
+          <button class="btn wide" id="newGroupBtn" style="margin:8px 0 12px">New group chat</button>
+        </div>
         <div id="chat" class="hidden">
           <div class="chat-head"><button class="link" id="backChat">&larr; Back</button><b id="chatName"></b></div>
           <div id="msgs"></div>
@@ -192,5 +194,20 @@
 </div>
 
 <script type="module" src="app.js"></script>
+
+<div id="groupModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>New group chat</h2>
+    <p class="muted small">Pick at least 2 Mates and give the group a name.</p>
+    <input class="field" id="groupTitle" maxlength="40" placeholder="Group name">
+    <div id="groupMateList" style="max-height:200px;overflow-y:auto;margin:10px 0;text-align:left"></div>
+    <div class="modal-actions">
+      <button class="link" id="groupCancel">Cancel</button>
+      <button class="btn" id="groupCreate">Create group</button>
+    </div>
+    <p id="groupMsg" class="note"></p>
+  </div>
+</div>
+
 </body>
 </html>

@@ -701,18 +701,89 @@ function subscribeConvs() {
 }
 function renderConvs() {
   const box = $("convList"); box.textContent = "";
-  if (!DM.convs.length) { box.append(el("p", "note", "No conversations yet. Open Classmates or Mates and tap Message.")); return; }
+  // Keep the New group button at the top
+  const newBtn = el("button", "btn wide", "New group chat");
+  newBtn.id = "newGroupBtn";
+  newBtn.style.margin = "8px 0 12px";
+  newBtn.onclick = openGroupModal;
+  box.append(newBtn);
+
+  if (!DM.convs.length) {
+    box.append(el("p", "note", "No conversations yet. Open Classmates or Mates and tap Message, or start a group chat."));
+    return;
+  }
   DM.convs.forEach(c => {
-    const other = c.participants.find(u => u !== S.user.uid);
-    const name = (S.users[other] && S.users[other].name) || (c.names && c.names[other]) || "Student";
+    let title, other = null;
+    if (c.isGroup) {
+      title = c.title || "Group chat";
+    } else {
+      other = c.participants.find(u => u !== S.user.uid);
+      title = (S.users[other] && S.users[other].name) || (c.names && c.names[other]) || "Student";
+    }
     const r = el("div", "row");
     r.style.cursor = "pointer";
     const info = el("div", "info");
-    info.append(el("b", "", name), el("span", "", c.lastText || ""));
+    const label = c.isGroup ? ("👥 " + title) : title;
+    info.append(el("b", "", label), el("span", "", c.lastText || ""));
     r.append(info);
-    r.onclick = () => openChat(c.id, other, name);
+    r.onclick = () => openChat(c.id, other, title, !!c.isGroup);
     box.append(r);
   });
+}
+
+function openGroupModal() {
+  if (!isStudent()) return toast("Only students can create group chats.");
+  const accepted = DM.mates.filter(m => m.status === "accepted");
+  if (accepted.length < 2) return toast("You need at least 2 Mates to start a group chat.");
+  const list = $("groupMateList");
+  list.textContent = "";
+  accepted.forEach(m => {
+    const uid = mateOther(m);
+    const name = mateName(m);
+    const row = el("label", "row");
+    row.style.cursor = "pointer";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = uid;
+    cb.dataset.name = name;
+    cb.style.marginRight = "10px";
+    row.append(cb, document.createTextNode(name));
+    list.append(row);
+  });
+  $("groupTitle").value = "";
+  $("groupMsg").textContent = "";
+  $("groupModal").classList.remove("hidden");
+}
+
+async function createGroupChat() {
+  const title = ($("groupTitle").value || "").trim();
+  if (!title) { $("groupMsg").textContent = "Give the group a name."; return; }
+  const checks = [...$("groupMateList").querySelectorAll("input[type=checkbox]:checked")];
+  if (checks.length < 2) { $("groupMsg").textContent = "Pick at least 2 Mates."; return; }
+  const me = S.user.uid;
+  const participants = [me, ...checks.map(c => c.value)];
+  const names = { [me]: S.profile.name || "Student" };
+  checks.forEach(c => { names[c.value] = c.dataset.name || "Student"; });
+  try {
+    const ref = await addDoc(collection(db, "conversations"), {
+      participants,
+      names,
+      classId: S.cls ? S.cls.classId : "none",
+      isGroup: true,
+      title: title.slice(0, 40),
+      createdBy: me,
+      createdAt: Date.now(),
+      lastAt: Date.now(),
+      lastText: "",
+      typing: {}
+    });
+    $("groupModal").classList.add("hidden");
+    toast("Group created!");
+    openChat(ref.id, null, title, true);
+  } catch (e) {
+    console.error(e);
+    $("groupMsg").textContent = "Could not create the group. Try again.";
+  }
 }
 async function startDM(otherUid, otherName) {
   if (!isStudent()) return toast("Only students can send messages.");
@@ -742,12 +813,12 @@ async function startDM(otherUid, otherName) {
   openChat(id, otherUid, otherName);
 }
 function closeChatSub() { if (DM.msgUnsub) DM.msgUnsub(); DM.msgUnsub = null; }
-function openChat(id, otherUid, otherName) {
-  DM.cur = { id, other: otherUid, name: otherName };
+function openChat(id, otherUid, otherName, isGroup) {
+  DM.cur = { id, other: otherUid, name: otherName, isGroup: !!isGroup };
   DM.reactOpen = null; DM.menuOpen = null;
   $("convList").classList.add("hidden");
   $("chat").classList.remove("hidden");
-  $("chatName").textContent = otherName;
+  $("chatName").textContent = isGroup ? ("👥 " + otherName) : otherName;
   $("emojiBar").classList.add("hidden");
   $("gifPanel").classList.add("hidden");
   closeChatSub();
@@ -819,9 +890,11 @@ function renderMsgs() {
     }
     box.append(wrap);
 
-    if (isMe && m === lastMine) {
+    if (isMe && m === lastMine && other) {
       const status = (m.readBy && m.readBy[other]) ? "Read" : ((m.deliveredTo && m.deliveredTo[other]) ? "Delivered" : "Sent");
       box.append(el("div", "receipt", status));
+    } else if (isMe && m === lastMine && DM.cur && DM.cur.isGroup) {
+      box.append(el("div", "receipt", "Sent"));
     }
   });
   box.scrollTop = box.scrollHeight;
@@ -1046,3 +1119,6 @@ async function unblockUser(otherUid) {
 $("menuBtn").onclick = () => { if (mobile()) appEl.classList.toggle("open"); else appEl.classList.toggle("collapsed"); };
 $("scrim").onclick = () => appEl.classList.remove("open");
 if ($("openMessages")) $("openMessages").onclick = () => { go("dms"); if (mobile()) appEl.classList.remove("open"); };
+
+$("groupCancel").onclick = () => $("groupModal").classList.add("hidden");
+$("groupCreate").onclick = createGroupChat;
