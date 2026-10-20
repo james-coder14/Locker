@@ -5,22 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#121212">
 <title>Locker</title>
-<script>
-function lockerShowError(m){
-  var t = (m && m.message) ? m.message : String(m);
-  var d = document.createElement("pre");
-  d.style.cssText = "color:#fff;background:#5a0000;padding:12px;white-space:pre-wrap;font-size:13px;position:fixed;top:0;left:0;right:0;z-index:99;margin:0";
-  d.textContent = "Locker error: " + t;
-  if (document.body) document.body.appendChild(d);
-  else document.addEventListener("DOMContentLoaded", function(){ document.body.appendChild(d); });
-}
-window.addEventListener("error", function(e){ lockerShowError(e.error || e.message); });
-window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.reason); });
-</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<button id="signOutBtn" class="hidden" aria-hidden="true"></button>
 
 <div id="login" class="screen hidden">
   <div class="box">
@@ -53,11 +40,11 @@ window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.rea
 
 <div id="onboard" class="screen hidden">
   <div class="box wide-box">
-    <p class="step-label" id="stepLabel">Step 1 of 4</p>
+    <p class="step-label" id="stepLabel">Step 1 of 5</p>
 
     <div id="s1">
       <h2>Introduce yourself</h2>
-      <p class="muted">Add a profile picture, a bio, a contact email, and your name.</p>
+      <p class="muted">Add a profile picture, a username, a bio, a contact email, and your name.</p>
       <div class="avatar-row">
         <img id="photoPreview" class="avatar xl empty" alt="">
         <label class="btn small">Choose photo<input id="photoIn" type="file" accept="image/*" class="fileinput"></label>
@@ -65,7 +52,11 @@ window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.rea
       <div class="form">
         <input class="field" id="pName" maxlength="40" placeholder="Your name">
         <input class="field" id="pUsername" maxlength="20" placeholder="Username (letters, numbers, _)" autocapitalize="none">
-        <select class="field" id="pRole"><option value="">Are you a teacher or a student?</option><option value="teacher">Teacher</option><option value="student">Student</option></select>
+        <select class="field" id="pRole">
+          <option value="">Are you a teacher or a student?</option>
+          <option value="teacher">Teacher</option>
+          <option value="student">Student</option>
+        </select>
         <textarea class="field" id="pBio" maxlength="300" rows="3" placeholder="Bio (a few words about you)"></textarea>
         <input class="field" id="pEmail" type="email" placeholder="Contact email">
         <button id="s1Next" class="btn wide">Next</button>
@@ -97,15 +88,22 @@ window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.rea
     <div id="s4" class="hidden">
       <h2>Add classmates</h2>
       <p class="muted">Tell classmates about Locker and have them make an account. They can instantly join with your classroom code.</p>
-      <div class="code-box">
-        <span class="muted small">Classroom code</span>
-        <div id="codeBig" class="code"></div>
-      </div>
+      <div class="code-box"><span class="muted small">Classroom code</span><div id="codeBig" class="code"></div></div>
       <div class="form">
         <textarea id="inviteText" class="field" rows="8" readonly></textarea>
         <button id="copyInvite" class="btn wide">Copy message</button>
         <button id="shareInvite" class="btn wide">Share</button>
-        <button id="s4Done" class="link wide">Open Locker</button>
+        <button id="s4Done" class="link wide">Next</button>
+      </div>
+    </div>
+
+    <div id="s5" class="hidden">
+      <h2>Got any friends on Locker?</h2>
+      <p class="muted">Add their username below and become Mates!</p>
+      <div class="form">
+        <input class="field" id="s5User" maxlength="20" placeholder="Their username" autocapitalize="none">
+        <button id="s5Add" class="btn wide">Become Mates</button>
+        <button id="s5Done" class="link wide">Finish</button>
       </div>
     </div>
 
@@ -120,6 +118,10 @@ window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.rea
       <div><b id="sideName">Student</b><span id="sideBio"></span></div>
     </div>
     <button class="link" id="editProfile">Edit profile</button>
+    <div class="label">MATES</div>
+    <div id="mateRequests"></div>
+    <div id="mateList"></div>
+    <button class="item" id="addMate">Add a Mate +</button>
     <div class="label">YOUR CLASSROOMS</div>
     <div id="classList"></div>
     <button class="item" id="addClass">+ Join or create a classroom</button>
@@ -136,9 +138,10 @@ window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.rea
       <section id="feed">
         <div class="composer"><input id="newPost" maxlength="500" placeholder="Post to your classroom"><button id="postBtn">Post</button></div>
         <div id="posts"></div>
-        <p class="note">Posts show your name. Anyone can report a post, and the teacher reviews reports.</p>
+        <p class="note">Posts show your name. Anyone can report a post, and reports are sent to the Locker team.</p>
       </section>
-      <section id="members" class="hidden"><div id="memberList"></div></section>
+      <section id="members" class="hidden"><div id="memberList"></div>
+        <button class="link hidden" id="deleteClass">Delete this classroom</button></section>
       <section id="calendar" class="hidden">
         <div id="evForm" class="form hidden">
           <input class="field" id="evTitle" maxlength="100" placeholder="Event title">
@@ -148,24 +151,34 @@ window.addEventListener("unhandledrejection", function(e){ lockerShowError(e.rea
         <div id="events"></div>
       </section>
       <section id="dms" class="hidden">
-  <div id="convList"></div>
-  <div id="chat" class="hidden">
-    <div class="chat-head"><button class="link" id="backChat">&larr; Back</button><b id="chatName"></b></div>
-    <div id="msgs"></div>
-    <div id="emojiBar" class="emoji-bar hidden"></div>
-    <div id="gifPanel" class="gif-grid hidden"></div>
-    <div class="composer">
-      <input id="dmInput" maxlength="500" placeholder="Message">
-      <button id="dmEmoji" class="icon-btn" aria-label="Emoji">&#128522;</button>
-      <button id="dmGif" class="icon-btn" aria-label="GIF">GIF</button>
-      <button id="dmSend">Send</button>
-    </div>
-  </div>
-</section>
-<section id="mod" class="hidden"><div id="reports"></div></section>
+        <div id="convList"></div>
+        <div id="chat" class="hidden">
+          <div class="chat-head"><button class="link" id="backChat">&larr; Back</button><b id="chatName"></b></div>
+          <div id="msgs"></div>
+          <div id="emojiBar" class="emoji-bar hidden"></div>
+          <div id="gifPanel" class="gif-drop hidden"></div>
+          <div class="composer">
+            <input id="dmInput" maxlength="500" placeholder="Message">
+            <button id="dmEmoji" class="icon-btn" aria-label="Emoji">&#128522;</button>
+            <button id="dmGif" class="icon-btn" aria-label="GIF">GIF</button>
+            <button id="dmSend">Send</button>
+          </div>
+        </div>
+      </section>
+      <section id="mod" class="hidden"><div id="reports"></div></section>
     </div>
     <nav class="tabs" id="tabs"></nav>
   </main>
+</div>
+
+<div id="mateModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Add a Mate</h2>
+    <p class="muted small">Type their username to become Mates.</p>
+    <input class="field" id="mateUser" maxlength="20" placeholder="Username" autocapitalize="none">
+    <div class="modal-actions"><button class="link" id="mateCancel">Cancel</button><button class="btn" id="mateAdd">Add</button></div>
+    <p id="mateMsg" class="note"></p>
+  </div>
 </div>
 
 <script type="module" src="app.js"></script>

@@ -20,11 +20,24 @@ service cloud.firestore {
     function isOwner(classId) {
       return signedIn() && get(/databases/$(database)/documents/classes/$(classId)).data.ownerUid == request.auth.uid;
     }
+    function isAdmin(classId) {
+      return signedIn() && exists(/databases/$(database)/documents/members/$(classId + '_' + request.auth.uid))
+        && get(/databases/$(database)/documents/members/$(classId + '_' + request.auth.uid)).data.role == 'admin';
+    }
+    function canModerate(classId) {
+      return isOwner(classId) || isAdmin(classId);
+    }
     function otherOf(p) {
       return p[0] == request.auth.uid ? p[1] : p[0];
     }
     function convParts(convId) {
       return get(/databases/$(database)/documents/conversations/$(convId)).data.participants;
+    }
+    function matesOK(a, b) {
+      return (exists(/databases/$(database)/documents/mates/$(a + '_' + b))
+          && get(/databases/$(database)/documents/mates/$(a + '_' + b)).data.status == 'accepted')
+        || (exists(/databases/$(database)/documents/mates/$(b + '_' + a))
+          && get(/databases/$(database)/documents/mates/$(b + '_' + a)).data.status == 'accepted');
     }
 
     match /mods/{uid} {
@@ -76,8 +89,32 @@ service cloud.firestore {
         && id == request.resource.data.classId + '_' + request.auth.uid
         && request.resource.data.uid == request.auth.uid
         && (request.resource.data.role == 'student' || (request.resource.data.role == 'owner' && isOwner(request.resource.data.classId)));
-      allow update: if false;
-      allow delete: if signedIn() && resource.data.uid == request.auth.uid && resource.data.role == 'student';
+      // owner can make students and admins (not the owner itself)
+      allow update: if isOwner(resource.data.classId) && resource.data.role != 'owner'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
+        && request.resource.data.role in ['student', 'admin'];
+      // students can leave; owner can remove anyone
+      allow delete: if signedIn() && ((resource.data.uid == request.auth.uid && resource.data.role == 'student') || isOwner(resource.data.classId));
+    }
+
+    // Mates: request, then the other person accepts
+    match /mates/{id} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['participants', 'names', 'status', 'requestedBy', 'createdAt'])
+        && request.resource.data.participants.size() == 2
+        && request.resource.data.participants[0] == request.auth.uid
+        && request.resource.data.participants[1] != request.auth.uid
+        && request.resource.data.requestedBy == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && id == request.resource.data.participants[0] + '_' + request.resource.data.participants[1]
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.participants[1]));
+      allow update: if signedIn() && request.auth.uid in resource.data.participants
+        && resource.data.status == 'pending'
+        && resource.data.requestedBy != request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'accepted';
+      allow delete: if signedIn() && request.auth.uid in resource.data.participants;
     }
 
     match /posts/{id} {
@@ -89,7 +126,7 @@ service cloud.firestore {
         && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500
         && request.resource.data.createdAt == request.time;
       allow update: if false;
-      allow delete: if signedIn() && (resource.data.author == request.auth.uid || isOwner(resource.data.classId) || isMod());
+      allow delete: if signedIn() && (resource.data.author == request.auth.uid || canModerate(resource.data.classId) || isMod());
     }
 
     match /likes/{id} {
@@ -107,11 +144,11 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['post', 'by', 'text', 'classId', 'at'])
         && request.resource.data.by == request.auth.uid
         && request.resource.data.text is string && request.resource.data.text.size() <= 500;
-      allow read, delete: if isOwner(resource.data.classId) || isMod();
+      allow read, delete: if canModerate(resource.data.classId) || isMod();
       allow update: if false;
     }
 
-    // Direct message reports: only moderators can read them (teachers cannot see DMs)
+    // Direct message reports: moderators only (teachers and admins cannot see DMs)
     match /dmReports/{id} {
       allow create: if signedIn() && request.resource.data.by == request.auth.uid
         && request.resource.data.keys().hasOnly(['by', 'convId', 'messageId', 'text', 'reason', 'at'])
@@ -124,14 +161,14 @@ service cloud.firestore {
 
     match /events/{id} {
       allow read: if isMember(resource.data.classId);
-      allow create: if isOwner(request.resource.data.classId)
+      allow create: if canModerate(request.resource.data.classId)
         && request.resource.data.keys().hasOnly(['classId', 'title', 'when', 'at'])
         && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 100;
       allow update: if false;
-      allow delete: if isOwner(resource.data.classId);
+      allow delete: if canModerate(resource.data.classId);
     }
 
-    // Direct messages: only the two students can see them. Teachers and everyone else cannot.
+    // Direct messages: only the two people can see them. Students only, classmates or accepted Mates.
     match /conversations/{convId} {
       allow read: if signedIn() && request.auth.uid in resource.data.participants;
       allow create: if isStudent()
@@ -139,9 +176,12 @@ service cloud.firestore {
         && request.resource.data.participants.size() == 2
         && request.resource.data.keys().hasOnly(['participants', 'classId', 'names', 'createdAt', 'lastAt', 'lastText'])
         && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 80
-        && exists(/databases/$(database)/documents/members/$(request.resource.data.classId + '_' + request.auth.uid))
-        && exists(/databases/$(database)/documents/members/$(request.resource.data.classId + '_' + otherOf(request.resource.data.participants)))
-        && get(/databases/$(database)/documents/users/$(otherOf(request.resource.data.participants))).data.role == 'student';
+        && get(/databases/$(database)/documents/users/$(otherOf(request.resource.data.participants))).data.role == 'student'
+        && (
+          (exists(/databases/$(database)/documents/members/$(request.resource.data.classId + '_' + request.auth.uid))
+            && exists(/databases/$(database)/documents/members/$(request.resource.data.classId + '_' + otherOf(request.resource.data.participants))))
+          || matesOK(request.resource.data.participants[0], request.resource.data.participants[1])
+        );
       allow update: if signedIn() && request.auth.uid in resource.data.participants
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAt', 'lastText'])
         && request.resource.data.lastText.size() <= 80;
@@ -161,12 +201,10 @@ service cloud.firestore {
           && request.resource.data.deliveredTo == {}
           && request.resource.data.reactions == {};
         allow update: if signedIn() && request.auth.uid in convParts(convId) && (
-          // author can edit the text
           (resource.data.from == request.auth.uid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt'])
             && request.resource.data.text.size() <= 500)
           ||
-          // either participant can record their own read/delivered/reaction
           (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy', 'deliveredTo', 'reactions'])
             && request.resource.data.readBy.diff(resource.data.readBy).affectedKeys().hasOnly([request.auth.uid])
             && request.resource.data.deliveredTo.diff(resource.data.deliveredTo).affectedKeys().hasOnly([request.auth.uid])
