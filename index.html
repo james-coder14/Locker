@@ -18,6 +18,8 @@
       <input class="field hidden" id="nameIn" maxlength="40" placeholder="Your name" autocomplete="name">
       <input class="field" id="emailIn" type="email" placeholder="Email" autocomplete="email">
       <input class="field" id="passIn" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
+      <button id="googleBtn" class="btn wide">Sign in with Google</button>
+      <p class="muted small center">or use email</p>
       <button id="authBtn" class="btn wide">Sign in</button>
       <button id="toggleBtn" class="link wide">Create an account</button>
       <button id="resetBtn" class="link wide">Forgot password?</button>
@@ -57,6 +59,7 @@
           <option value="teacher">Teacher</option>
           <option value="student">Student</option>
         </select>
+        <select class="field" id="pTheme"><option value="default">Theme: Gray</option><option value="ocean">Theme: Ocean</option><option value="forest">Theme: Forest</option><option value="sunset">Theme: Sunset</option><option value="rose">Theme: Rose</option></select>
         <textarea class="field" id="pBio" maxlength="300" rows="3" placeholder="Bio (a few words about you)"></textarea>
         <input class="field" id="pEmail" type="email" placeholder="Contact email">
         <button id="s1Next" class="btn wide">Next</button>
@@ -113,11 +116,12 @@
 
 <div id="app" class="app hidden">
   <aside>
-    <div class="profile-card">
+    <div class="profile-card" id="profileCard">
       <img id="sideAvatar" class="avatar" alt="">
       <div><b id="sideName">Student</b><span id="sideBio"></span></div>
     </div>
     <button class="link" id="editProfile">Edit profile</button>
+    <button class="item" id="openMessages">Messages</button>
     <div class="label">MATES</div>
     <div id="mateRequests"></div>
     <div id="mateList"></div>
@@ -157,6 +161,7 @@
           <div id="msgs"></div>
           <div id="emojiBar" class="emoji-bar hidden"></div>
           <div id="gifPanel" class="gif-drop hidden"></div>
+          <div id="typingRow" class="typing"></div>
           <div class="composer">
             <input id="dmInput" maxlength="500" placeholder="Message">
             <button id="dmEmoji" class="icon-btn" aria-label="Emoji">&#128522;</button>
@@ -178,6 +183,13 @@
     <input class="field" id="mateUser" maxlength="20" placeholder="Username" autocapitalize="none">
     <div class="modal-actions"><button class="link" id="mateCancel">Cancel</button><button class="btn" id="mateAdd">Add</button></div>
     <p id="mateMsg" class="note"></p>
+  </div>
+</div>
+
+<div id="profileModal" class="modal hidden">
+  <div class="modal-box">
+    <div id="profileView"></div>
+    <div class="modal-actions"><button class="link" id="profileClose">Close</button></div>
   </div>
 </div>
 

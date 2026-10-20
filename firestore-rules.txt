@@ -39,6 +39,11 @@ service cloud.firestore {
         || (exists(/databases/$(database)/documents/mates/$(b + '_' + a))
           && get(/databases/$(database)/documents/mates/$(b + '_' + a)).data.status == 'accepted');
     }
+    // true if either person has blocked the other
+    function blockedEither(a, b) {
+      return exists(/databases/$(database)/documents/blocks/$(a + '_' + b))
+        || exists(/databases/$(database)/documents/blocks/$(b + '_' + a));
+    }
 
     match /mods/{uid} {
       allow get: if signedIn() && request.auth.uid == uid;
@@ -56,14 +61,26 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if signedIn();
       allow write: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['name', 'bio', 'contactEmail', 'username', 'role', 'photo', 'onboarded', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'bio', 'contactEmail', 'username', 'role', 'theme', 'photo', 'onboarded', 'updatedAt'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
         && request.resource.data.bio is string && request.resource.data.bio.size() <= 300
         && request.resource.data.contactEmail is string && request.resource.data.contactEmail.size() <= 100
         && request.resource.data.username is string && request.resource.data.username.matches('^[a-z0-9_]{3,20}$')
         && request.resource.data.role in ['teacher', 'student']
+        && request.resource.data.get('theme', 'default') in ['default', 'ocean', 'forest', 'sunset', 'rose']
         && request.resource.data.photo is string && request.resource.data.photo.size() <= 150000
         && request.resource.data.onboarded is bool;
+    }
+
+    // Blocks: only the blocker can see and manage their own blocks
+    match /blocks/{id} {
+      allow read: if signedIn() && resource.data.blocker == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.blocker == request.auth.uid
+        && request.resource.data.keys().hasOnly(['blocker', 'blocked', 'at'])
+        && request.resource.data.blocked != request.auth.uid
+        && id == request.resource.data.blocker + '_' + request.resource.data.blocked;
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.blocker == request.auth.uid;
     }
 
     match /classes/{classId} {
@@ -89,15 +106,12 @@ service cloud.firestore {
         && id == request.resource.data.classId + '_' + request.auth.uid
         && request.resource.data.uid == request.auth.uid
         && (request.resource.data.role == 'student' || (request.resource.data.role == 'owner' && isOwner(request.resource.data.classId)));
-      // owner can make students and admins (not the owner itself)
       allow update: if isOwner(resource.data.classId) && resource.data.role != 'owner'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
         && request.resource.data.role in ['student', 'admin'];
-      // students can leave; owner can remove anyone
       allow delete: if signedIn() && ((resource.data.uid == request.auth.uid && resource.data.role == 'student') || isOwner(resource.data.classId));
     }
 
-    // Mates: request, then the other person accepts
     match /mates/{id} {
       allow read: if signedIn() && request.auth.uid in resource.data.participants;
       allow create: if signedIn()
@@ -108,6 +122,7 @@ service cloud.firestore {
         && request.resource.data.requestedBy == request.auth.uid
         && request.resource.data.status == 'pending'
         && id == request.resource.data.participants[0] + '_' + request.resource.data.participants[1]
+        && !blockedEither(request.resource.data.participants[0], request.resource.data.participants[1])
         && exists(/databases/$(database)/documents/users/$(request.resource.data.participants[1]));
       allow update: if signedIn() && request.auth.uid in resource.data.participants
         && resource.data.status == 'pending'
@@ -148,7 +163,6 @@ service cloud.firestore {
       allow update: if false;
     }
 
-    // Direct message reports: moderators only (teachers and admins cannot see DMs)
     match /dmReports/{id} {
       allow create: if signedIn() && request.resource.data.by == request.auth.uid
         && request.resource.data.keys().hasOnly(['by', 'convId', 'messageId', 'text', 'reason', 'at'])
@@ -168,14 +182,15 @@ service cloud.firestore {
       allow delete: if canModerate(resource.data.classId);
     }
 
-    // Direct messages: only the two people can see them. Students only, classmates or accepted Mates.
     match /conversations/{convId} {
       allow read: if signedIn() && request.auth.uid in resource.data.participants;
       allow create: if isStudent()
         && request.auth.uid in request.resource.data.participants
         && request.resource.data.participants.size() == 2
-        && request.resource.data.keys().hasOnly(['participants', 'classId', 'names', 'createdAt', 'lastAt', 'lastText'])
+        && request.resource.data.keys().hasOnly(['participants', 'classId', 'names', 'createdAt', 'lastAt', 'lastText', 'typing'])
         && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 80
+        && request.resource.data.typing == {}
+        && !blockedEither(request.resource.data.participants[0], request.resource.data.participants[1])
         && get(/databases/$(database)/documents/users/$(otherOf(request.resource.data.participants))).data.role == 'student'
         && (
           (exists(/databases/$(database)/documents/members/$(request.resource.data.classId + '_' + request.auth.uid))
@@ -183,7 +198,9 @@ service cloud.firestore {
           || matesOK(request.resource.data.participants[0], request.resource.data.participants[1])
         );
       allow update: if signedIn() && request.auth.uid in resource.data.participants
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAt', 'lastText'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAt', 'lastText', 'typing'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['typing'])
+          || request.resource.data.typing.diff(resource.data.typing).affectedKeys().hasOnly([request.auth.uid]))
         && request.resource.data.lastText.size() <= 80;
       allow delete: if false;
 
