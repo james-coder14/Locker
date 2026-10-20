@@ -357,24 +357,26 @@ function renderSideClasses() {
 
 async function deleteClassroom(cls) {
   if (!cls) return;
-  if (!(isOwnerOf(cls) || S.mod)) return toast("Only the owner can delete this classroom.");
+  if (!(isOwnerOf(cls) || S.mod)) return toast("Only the owner or a mod can delete this classroom.");
   const typed = window.prompt("To delete this classroom, type its name exactly:\n" + cls.name);
   if (typed === null) return;
   if (typed.trim() !== cls.name) return toast("The name did not match. Classroom not deleted.");
   try {
     const mems = await getDocs(query(collection(db, "members"), where("classId", "==", cls.classId)));
     for (const d of mems.docs) {
-      if (d.id !== cls.classId + "_" + S.user.uid) await deleteDoc(d.ref).catch(() => {});
+      await deleteDoc(d.ref).catch(err => console.warn("member delete", err));
     }
-    await deleteDoc(doc(db, "classCodes", cls.code)).catch(() => {});
-    await deleteDoc(doc(db, "members", cls.classId + "_" + S.user.uid)).catch(() => {});
+    if (cls.code) await deleteDoc(doc(db, "classCodes", cls.code)).catch(err => console.warn("code delete", err));
     await deleteDoc(doc(db, "classes", cls.classId));
     toast("Classroom deleted.");
     if (S.cls && S.cls.classId === cls.classId) S.cls = null;
     await loadClasses();
     renderSideClasses();
     selectClass(S.classes[0] || null);
-  } catch (e) { toast("Could not delete the classroom. Try again."); }
+  } catch (e) {
+    console.error("deleteClassroom", e);
+    toast("Could not delete the classroom. (" + (e.code || "error") + ")");
+  }
 }
 
 function selectClass(c) {
@@ -818,7 +820,10 @@ function openChat(id, otherUid, otherName, isGroup) {
   DM.reactOpen = null; DM.menuOpen = null;
   $("convList").classList.add("hidden");
   $("chat").classList.remove("hidden");
-  $("chatName").textContent = isGroup ? ("👥 " + otherName) : otherName;
+  const nameEl = $("chatName");
+  nameEl.textContent = isGroup ? ("👥 " + otherName) : otherName;
+  nameEl.style.cursor = isGroup ? "pointer" : "";
+  nameEl.onclick = isGroup ? () => openGroupMenu() : null;
   $("emojiBar").classList.add("hidden");
   $("gifPanel").classList.add("hidden");
   closeChatSub();
@@ -827,6 +832,112 @@ function openChat(id, otherUid, otherName, isGroup) {
     renderMsgs();
     markReceipts();
   }, onErr);
+}
+
+async function openGroupMenu() {
+  if (!DM.cur || !DM.cur.isGroup) return;
+  let conv = DM.convs.find(c => c.id === DM.cur.id);
+  if (!conv) {
+    try {
+      const snap = await getDoc(doc(db, "conversations", DM.cur.id));
+      if (snap.exists()) conv = { id: snap.id, ...snap.data() };
+    } catch (e) {}
+  }
+  if (!conv) return toast("Could not load group info.");
+
+  const view = $("profileView");
+  view.textContent = "";
+  view.append(el("h2", "", conv.title || "Group chat"));
+  view.append(el("p", "muted small", (conv.participants || []).length + " members"));
+
+  const list = el("div", "");
+  (conv.participants || []).forEach(uid => {
+    const name = (S.users[uid] && S.users[uid].name) || (conv.names && conv.names[uid]) || "Member";
+    const row = el("div", "row");
+    row.append(el("span", "", name + (uid === S.user.uid ? " (you)" : "")));
+    // Creator or mod can remove others
+    if (uid !== S.user.uid && (conv.createdBy === S.user.uid || S.mod)) {
+      const rm = el("button", "btn small", "Remove");
+      rm.onclick = async () => {
+        if (!window.confirm("Remove " + name + " from this group?")) return;
+        try {
+          const newParts = conv.participants.filter(u => u !== uid);
+          const newNames = { ...(conv.names || {}) };
+          delete newNames[uid];
+          // Firestore array update via set whole participants
+          await updateDoc(doc(db, "conversations", conv.id), {
+            participants: newParts,
+            names: newNames
+          });
+          toast(name + " removed.");
+          openGroupMenu();
+        } catch (e) {
+          console.error(e);
+          toast("Could not remove member. Rules may need a participants update allow.");
+        }
+      };
+      row.append(rm);
+    }
+    list.append(row);
+  });
+  view.append(list);
+
+  const actions = el("div", "form");
+  actions.style.marginTop = "16px";
+
+  // Leave group
+  const leave = el("button", "btn wide", "Leave group");
+  leave.onclick = async () => {
+    if (!window.confirm("Leave this group chat?")) return;
+    try {
+      const newParts = (conv.participants || []).filter(u => u !== S.user.uid);
+      if (newParts.length < 2) {
+        // Too few left — delete the whole chat
+        await deleteDoc(doc(db, "conversations", conv.id));
+      } else {
+        const newNames = { ...(conv.names || {}) };
+        delete newNames[S.user.uid];
+        await updateDoc(doc(db, "conversations", conv.id), {
+          participants: newParts,
+          names: newNames
+        });
+      }
+      toast("Left the group.");
+      $("profileModal").classList.add("hidden");
+      closeChatSub();
+      DM.cur = null;
+      $("chat").classList.add("hidden");
+      $("convList").classList.remove("hidden");
+    } catch (e) {
+      console.error(e);
+      toast("Could not leave group.");
+    }
+  };
+  actions.append(leave);
+
+  // Delete entire group (creator or mod)
+  if (conv.createdBy === S.user.uid || S.mod) {
+    const del = el("button", "btn wide danger", "Delete group chat");
+    del.onclick = async () => {
+      if (!window.confirm("Delete this group chat for everyone? This cannot be undone.")) return;
+      try {
+        await deleteDoc(doc(db, "conversations", conv.id));
+        toast("Group deleted.");
+        $("profileModal").classList.add("hidden");
+        closeChatSub();
+        DM.cur = null;
+        $("chat").classList.add("hidden");
+        $("convList").classList.remove("hidden");
+      } catch (e) {
+        console.error(e);
+        toast("Could not delete group. (" + (e.code || "error") + ")");
+      }
+    };
+    actions.append(del);
+  }
+
+  view.append(actions);
+  $("profileModal").classList.remove("hidden");
 }
 $("backChat").onclick = () => {
   closeChatSub();

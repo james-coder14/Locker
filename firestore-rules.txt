@@ -55,7 +55,7 @@ service cloud.firestore {
       allow create: if signedIn() && name.matches('^[a-z0-9_]{3,20}$')
         && request.resource.data.keys().hasOnly(['uid'])
         && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update, delete: if signedIn() && (resource.data.uid == request.auth.uid || isMod());
     }
 
     match /users/{uid} {
@@ -70,6 +70,7 @@ service cloud.firestore {
         && request.resource.data.get('theme', 'default') in ['default', 'ocean', 'forest', 'sunset', 'rose']
         && request.resource.data.photo is string && request.resource.data.photo.size() <= 150000
         && request.resource.data.onboarded is bool;
+      allow delete: if isMod();
     }
 
     // Blocks: only the blocker can see and manage their own blocks
@@ -84,23 +85,23 @@ service cloud.firestore {
     }
 
     match /classes/{classId} {
-      allow read: if isMember(classId);
+      allow read: if isMember(classId) || isMod();
       allow create: if isTeacher() && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.keys().hasOnly(['name', 'code', 'ownerUid', 'ownerName', 'createdAt'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
         && request.resource.data.code is string && request.resource.data.code.size() == 6;
-      allow update, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if signedIn() && (resource.data.ownerUid == request.auth.uid || isMod());
     }
 
     match /classCodes/{code} {
       allow get: if signedIn();
       allow create: if signedIn() && request.resource.data.keys().hasOnly(['classId'])
         && isOwner(request.resource.data.classId);
-      allow delete: if signedIn() && isOwner(resource.data.classId);
+      allow delete: if signedIn() && (isOwner(resource.data.classId) || isMod());
     }
 
     match /members/{id} {
-      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isMember(resource.data.classId));
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isMember(resource.data.classId) || isMod());
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['classId', 'uid', 'role', 'joinedAt'])
         && id == request.resource.data.classId + '_' + request.auth.uid
@@ -109,7 +110,7 @@ service cloud.firestore {
       allow update: if isOwner(resource.data.classId) && resource.data.role != 'owner'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
         && request.resource.data.role in ['student', 'admin'];
-      allow delete: if signedIn() && ((resource.data.uid == request.auth.uid && resource.data.role == 'student') || isOwner(resource.data.classId));
+      allow delete: if signedIn() && ((resource.data.uid == request.auth.uid && resource.data.role == 'student') || isOwner(resource.data.classId) || isMod());
     }
 
     match /mates/{id} {
@@ -215,11 +216,21 @@ service cloud.firestore {
           )
         );
       allow update: if signedIn() && request.auth.uid in resource.data.participants
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAt', 'lastText', 'typing'])
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['typing'])
-          || request.resource.data.typing.diff(resource.data.typing).affectedKeys().hasOnly([request.auth.uid]))
-        && request.resource.data.lastText.size() <= 80;
-      allow delete: if false;
+        && (
+          // normal chat activity
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastAt', 'lastText', 'typing'])
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['typing'])
+              || request.resource.data.typing.diff(resource.data.typing).affectedKeys().hasOnly([request.auth.uid]))
+            && request.resource.data.lastText.size() <= 80)
+          ||
+          // leave group / remove member (participants + names only)
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants', 'names'])
+            && request.auth.uid in resource.data.participants
+            && request.resource.data.participants is list
+            && request.resource.data.participants.size() >= 1
+            && request.resource.data.participants.size() <= resource.data.participants.size())
+        );
+      allow delete: if signedIn() && (request.auth.uid in resource.data.participants || isMod());
 
       match /messages/{msgId} {
         allow read: if signedIn() && request.auth.uid in convParts(convId);
