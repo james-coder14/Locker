@@ -114,7 +114,7 @@ $("resendBtn").onclick = async () => {
   catch (e) { $("verifyMsg").textContent = "Please wait a minute before resending."; }
 };
 $("backBtn").onclick = () => signOut(auth);
-$("sideSignOut").onclick = () => signOut(auth);
+if ($("sideSignOut")) $("sideSignOut").onclick = () => signOut(auth);
 
 onAuthStateChanged(auth, async user => {
   unsubAll();
@@ -148,11 +148,10 @@ function startOnboarding(mode) {
   setPhoto(S.photoData);
   $("pName").value = p.name || (S.user && S.user.displayName) || "";
   $("pUsername").value = p.username || "";
-  $("pRole").value = p.role || "";
-  // Once onboarded, role is locked (stops students becoming teachers)
   if ($("pRole")) {
-    $("pRole").disabled = !!(p.onboarded);
-    $("pRole").title = p.onboarded ? "Role cannot be changed after setup" : "";
+    $("pRole").value = "student";
+    $("pRole").disabled = true;
+    $("pRole").title = "All accounts are Student. Creating a classroom gives you teacher tools.";
   }
   if ($("pTheme")) $("pTheme").value = p.theme || "default";
   $("pBio").value = p.bio || "";
@@ -181,23 +180,35 @@ $("photoIn").onchange = async e => {
   try { S.photoData = await shrinkImage(f, 160); setPhoto(S.photoData); }
   catch (err) { onboardMsg("That picture could not be used. Try a different one."); }
 };
+if ($("coverIn")) $("coverIn").onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    S.coverData = await shrinkImage(f, 640); // wider cover, still compressed
+    toast("Cover photo ready — save profile to apply.");
+  } catch (err) { onboardMsg("Cover photo could not be used."); }
+};
 
 async function saveProfile() {
   const name = $("pName").value.trim();
   const bio = $("pBio").value.trim();
   const contactEmail = $("pEmail").value.trim();
   const username = $("pUsername").value.trim().toLowerCase();
-  let role = $("pRole").value;
-  // HARD LOCK: once onboarded, role cannot change
-  if (S.profile && S.profile.onboarded && S.profile.role) {
-    role = S.profile.role;
-  }
+  // Everyone is Student. Legacy teachers keep teacher role.
+  let role = "student";
+  if (S.profile && S.profile.role === "teacher") role = "teacher";
   if (!name) { onboardMsg("Please enter your name."); return false; }
   if (!/^[a-z0-9_]{3,20}$/.test(username)) { onboardMsg("Username must be 3 to 20 letters, numbers, or underscores."); return false; }
-  if (role !== "teacher" && role !== "student") { onboardMsg("Please choose Teacher or Student."); return false; }
   if (!contactEmail) { onboardMsg("Please enter a contact email."); return false; }
   const oldUsername = S.profile && S.profile.username;
   if (username !== oldUsername) {
+    // 24h cooldown on username changes
+    const lastChange = (S.profile && S.profile.usernameChangedAt) || 0;
+    if (oldUsername && (Date.now() - lastChange) < 24 * 60 * 60 * 1000) {
+      const hrs = Math.ceil((24 * 60 * 60 * 1000 - (Date.now() - lastChange)) / 3600000);
+      onboardMsg("You can change your username again in about " + hrs + " hour(s).");
+      return false;
+    }
     try { await setDoc(doc(db, "usernames", username), { uid: S.user.uid }); }
     catch (e) { onboardMsg("That username is taken. Try another one."); return false; }
     if (oldUsername) await deleteDoc(doc(db, "usernames", oldUsername)).catch(() => {});
@@ -206,11 +217,13 @@ async function saveProfile() {
   const status = ($("pStatus") && $("pStatus").value.trim().slice(0, 40)) || "";
   const data = {
     name, bio, contactEmail, username, role, theme, status,
-    photo: S.photoData || "",
+    photo: S.photoData || (S.profile && S.profile.photo) || "",
+    cover: S.coverData || (S.profile && S.profile.cover) || "",
     onboarded: !!(S.profile && S.profile.onboarded),
     updatedAt: Date.now(),
     lastSeen: Date.now()
   };
+  if (username !== oldUsername) data.usernameChangedAt = Date.now();
   try { await setDoc(doc(db, "users", S.user.uid), data, { merge: true }); }
   catch (e) { onboardMsg("Could not save. Check your internet and try again."); return false; }
   S.profile = { ...S.profile, ...data }; S.users[S.user.uid] = S.profile;
@@ -225,9 +238,9 @@ $("s1Next").onclick = async () => {
 };
 $("s1Cancel").onclick = () => enterApp(S.cls && S.cls.classId);
 
-$("s2Create").onclick = () => (S.profile && S.profile.role === "teacher")
+$("s2Create").onclick = () => (S.mod || (S.profile && S.profile.role === "teacher"))
   ? stepTo(3)
-  : onboardMsg("Only teachers can create classrooms. Ask your teacher for the classroom code.");
+  : onboardMsg("Ask a mod or your teacher for a classroom code, or join with a code.");
 $("s2Back").onclick = () => (S.profile && S.profile.onboarded) ? enterApp(S.cls && S.cls.classId) : stepTo(1);
 
 async function joinClass(classId) {
@@ -314,7 +327,7 @@ $("addClass").onclick = () => {
   show("onboard");
   stepTo(2);
 };
-$("editProfile").onclick = () => startOnboarding("edit");
+if ($("editProfile")) $("editProfile").onclick = () => startOnboarding("edit");
 
 /* ---------- Main app ---------- */
 async function enterApp(selectId) {
@@ -390,7 +403,7 @@ function renderSideClasses() {
     b.onclick = () => { selectClass(c); if (mobile()) appEl.classList.remove("open"); };
     row.append(b);
     if (isOwnerOf(c) || S.mod) {
-      const del = el("button", "class-del", "🗑");
+      const del = el("button", "class-del", ""); del.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>';
       del.title = "Delete classroom";
       del.onclick = (e) => {
         e.stopPropagation();
@@ -493,8 +506,8 @@ async function ensureUsers(uids) {
 function renderTabs() {
   const t = $("tabs"); t.textContent = "";
   const tabs = [["feed", "Feed"], ["members", "Classmates"], ["calendar", "Calendar"]];
-  if (isStudent()) tabs.push(["dms", "Messages"]);
-  if (S.cls && (isOwnerOf(S.cls) || S.myRole === "admin" || S.mod)) tabs.push(["mod", "Moderate" + (S.reports.length ? " (" + S.reports.length + ")" : "")]);
+  tabs.push(["dms", "Messages"]);
+  if (S.mod || (S.cls && (isOwnerOf(S.cls) || S.myRole === "admin"))) tabs.push(["mod", "Moderate" + (S.reports.length ? " (" + S.reports.length + ")" : "")]);
   tabs.forEach(([k, l]) => { const b = el("button", S.tab === k ? "on" : "", l); b.onclick = () => go(k); t.append(b); });
 }
 function go(tab) {
@@ -548,18 +561,43 @@ function renderPosts() {
     }
     d.append(meta, el("p", "", p.text), a);
 
-    // Comments list
+    // Comments + replies
     if (comments.length) {
       const cl = el("div", "comments");
-      comments.forEach(c => {
+      const tops = comments.filter(c => !c.parentId);
+      const replies = comments.filter(c => c.parentId);
+      tops.forEach(c => {
         const row = el("div", "comment");
         row.append(el("b", "", c.authorName || "Student"), document.createTextNode(" " + c.text));
+        const acts = el("span", "comment-acts");
+        const replyBtn = el("button", "link small", "Reply");
+        replyBtn.onclick = () => {
+          const box = $("cbox-" + p.id);
+          if (box) {
+            box.classList.remove("hidden");
+            box.dataset.parentId = c.id;
+            const inp = box.querySelector("input");
+            if (inp) { inp.placeholder = "Reply to " + (c.authorName || "them") + "..."; inp.focus(); }
+          }
+        };
+        acts.append(replyBtn);
         if (c.author === S.user.uid || isOwnerOf(S.cls) || S.mod) {
           const xd = el("button", "link small", "×");
           xd.onclick = () => deleteDoc(doc(db, "comments", c.id)).catch(onErr);
-          row.append(xd);
+          acts.append(xd);
         }
+        row.append(acts);
         cl.append(row);
+        replies.filter(r => r.parentId === c.id).forEach(r => {
+          const rr = el("div", "comment reply");
+          rr.append(el("b", "", r.authorName || "Student"), document.createTextNode(" " + r.text));
+          if (r.author === S.user.uid || isOwnerOf(S.cls) || S.mod) {
+            const xd = el("button", "link small", "×");
+            xd.onclick = () => deleteDoc(doc(db, "comments", r.id)).catch(onErr);
+            rr.append(xd);
+          }
+          cl.append(rr);
+        });
       });
       d.append(cl);
     }
@@ -570,8 +608,20 @@ function renderPosts() {
     cin.placeholder = "Write a comment...";
     cin.maxLength = 400;
     const csend = el("button", "btn small", "Send");
-    csend.onclick = () => sendComment(p.id, cin);
-    cin.addEventListener("keydown", e => { if (e.key === "Enter") sendComment(p.id, cin); });
+    csend.onclick = () => {
+      const pid = cbox.dataset.parentId || null;
+      sendComment(p.id, cin, pid);
+      delete cbox.dataset.parentId;
+      cin.placeholder = "Write a comment...";
+    };
+    cin.addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        const pid = cbox.dataset.parentId || null;
+        sendComment(p.id, cin, pid);
+        delete cbox.dataset.parentId;
+        cin.placeholder = "Write a comment...";
+      }
+    });
     cbox.append(cin, csend);
     d.append(cbox);
 
@@ -584,15 +634,16 @@ function toggleCommentBox(postId) {
   if (box) box.classList.toggle("hidden");
 }
 
-async function sendComment(postId, input) {
+async function sendComment(postId, input, parentId) {
   const text = (input.value || "").trim();
   if (!text || !S.cls) return;
   try {
-    await addDoc(collection(db, "comments"), {
+    const payload = {
       postId, classId: S.cls.classId, author: S.user.uid,
       authorName: S.profile.name || "Student", text: text.slice(0, 400),
-      createdAt: serverTimestamp()
-    });
+      createdAt: serverTimestamp(), parentId: parentId || null
+    };
+    await addDoc(collection(db, "comments"), payload);
     input.value = "";
   } catch (e) { toast("Could not comment."); }
 }
@@ -773,6 +824,99 @@ function renderReports() {
   });
 }
 
+/* ---------- Mod: view any user's chats (read-only) ---------- */
+async function modSearchChats() {
+  if (!S.mod) return toast("Mods only.");
+  const uname = (($("modChatUser") && $("modChatUser").value) || "").trim().toLowerCase();
+  if (!/^[a-z0-9_]{3,20}$/.test(uname)) return toast("Enter a valid username.");
+  const list = $("modChatList");
+  const view = $("modChatView");
+  if (list) list.textContent = "";
+  if (view) view.classList.add("hidden");
+  try {
+    const us = await getDoc(doc(db, "usernames", uname));
+    if (!us.exists()) return toast("No user with that username.");
+    const uid = us.data().uid;
+    let userName = uname;
+    try {
+      const u = await getDoc(doc(db, "users", uid));
+      if (u.exists()) userName = u.data().name || uname;
+    } catch (e) {}
+    // Query conversations this user is in
+    const snap = await getDocs(query(collection(db, "conversations"), where("participants", "array-contains", uid)));
+    if (!snap.docs.length) {
+      list.append(el("p", "note", userName + " has no conversations yet."));
+      return;
+    }
+    list.append(el("p", "note", "Chats for " + userName + " (" + snap.docs.length + ")"));
+    snap.docs.forEach(d => {
+      const c = { id: d.id, ...d.data() };
+      let title;
+      if (c.isGroup) title = "👥 " + (c.title || "Group");
+      else {
+        const other = (c.participants || []).find(p => p !== uid);
+        title = (c.names && (c.names[other] || c.names[uid])) || "Chat";
+        if (c.names && c.names[other]) title = c.names[other];
+      }
+      const row = el("div", "row");
+      row.style.cursor = "pointer";
+      const info = el("div", "info");
+      info.append(el("b", "", title), el("span", "", c.lastText || "(no messages)"));
+      row.append(info);
+      row.onclick = () => modOpenChat(c, title);
+      list.append(row);
+    });
+  } catch (e) {
+    console.error(e);
+    toast("Could not load chats. (" + (e.code || "error") + ")");
+  }
+}
+
+async function modOpenChat(conv, title) {
+  if (!S.mod) return;
+  $("modChatList").classList.add("hidden");
+  $("modChatView").classList.remove("hidden");
+  $("modChatTitle").textContent = title || "Chat";
+  const box = $("modChatMsgs");
+  box.textContent = "";
+  box.append(el("p", "note", "Loading messages…"));
+  try {
+    const snap = await getDocs(collection(db, "conversations", conv.id, "messages"));
+    const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(a.createdAt) - ms(b.createdAt));
+    box.textContent = "";
+    if (!msgs.length) {
+      box.append(el("p", "note", "No messages in this chat."));
+      return;
+    }
+    msgs.forEach(m => {
+      const name = (conv.names && conv.names[m.from]) || (S.users[m.from] && S.users[m.from].name) || "User";
+      const row = el("div", "post");
+      row.style.padding = "10px 12px";
+      row.append(el("div", "meta", name + " · " + when(m.createdAt)));
+      if (m.type === "gif" && m.gifUrl) {
+        const g = el("img", "gif");
+        g.src = m.gifUrl;
+        g.alt = "GIF";
+        row.append(g);
+      }
+      if (m.text) row.append(el("p", "", m.text));
+      box.append(row);
+    });
+  } catch (e) {
+    console.error(e);
+    box.textContent = "";
+    box.append(el("p", "note", "Could not load messages."));
+  }
+}
+
+if ($("modChatSearch")) $("modChatSearch").onclick = modSearchChats;
+if ($("modChatUser")) $("modChatUser").addEventListener("keydown", e => { if (e.key === "Enter") modSearchChats(); });
+if ($("modChatBack")) $("modChatBack").onclick = () => {
+  $("modChatView").classList.add("hidden");
+  $("modChatList").classList.remove("hidden");
+};
+
+
 /* ---------- Mates (request, then accept) ---------- */
 function subscribeMates() {
   if (DM.matesUnsub) DM.matesUnsub();
@@ -861,7 +1005,6 @@ $("mateAdd").onclick = async () => {
 function subscribeConvs() {
   if (DM.convUnsub) DM.convUnsub();
   DM.convUnsub = null;
-  if (!isStudent()) return;
   DM.convUnsub = onSnapshot(query(collection(db, "conversations"), where("participants", "array-contains", S.user.uid)),
     s => { DM.convs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0)); renderConvs(); }, onErr);
 }
@@ -898,7 +1041,7 @@ function renderConvs() {
 }
 
 function openGroupModal() {
-  if (!isStudent()) return toast("Only students can create group chats.");
+  if (!S.profile) return toast("Profile not loaded.");
   const accepted = DM.mates.filter(m => m.status === "accepted");
   if (accepted.length < 2) return toast("You need at least 2 Mates to start a group chat.");
   const list = $("groupMateList");
@@ -952,7 +1095,7 @@ async function createGroupChat() {
   }
 }
 async function startDM(otherUid, otherName) {
-  if (!isStudent()) return toast("Only students can send messages.");
+  if (!S.profile) return toast("Profile not loaded.");
   if (otherUid === S.user.uid) return;
   const me = S.user.uid, id = convIdFor(me, otherUid);
   let exists = false;
@@ -1297,22 +1440,57 @@ async function openProfile(uid) {
   const view = $("profileView");
   view.textContent = "";
   const theme = u.theme && u.theme !== "default" ? " theme-" + u.theme : "";
-  const card = el("div", "profile-card" + theme);
-  card.append(avatar(u.photo, "xl"));
-  const info = el("div", "info");
-  info.append(el("b", "", u.name || "Student"));
-  info.append(el("span", "", (u.username ? "@" + u.username : "") + (u.role ? " · " + (u.role === "teacher" ? "Teacher" : "Student") : "")));
+
+  // Cover + avatar header (Facebook-style)
+  const hero = el("div", "profile-hero" + theme);
+  const cover = el("div", "profile-cover");
+  if (u.cover) {
+    cover.style.backgroundImage = "url(" + u.cover + ")";
+  }
+  hero.append(cover);
+  const avWrap = el("div", "profile-av-wrap");
+  avWrap.append(avatar(u.photo, "xl"));
+  hero.append(avWrap);
+  view.append(hero);
+
+  const head = el("div", "profile-head");
+  head.append(el("h2", "", u.name || "Student"));
+  head.append(el("span", "muted", (u.username ? "@" + u.username : "") + (u.role ? " · " + (u.role === "teacher" ? "Teacher" : "Student") : "")));
   const seen = lastSeenText(u);
-  if (seen) info.append(el("span", isOnline(u) ? "online-text" : "muted small", seen));
-  if (u.status) info.append(el("span", "", u.status));
-  if (u.bio) info.append(el("span", "", u.bio));
-  card.append(info);
-  view.append(card);
+  if (seen) head.append(el("span", isOnline(u) ? "online-text" : "muted small", seen));
+  if (u.status) head.append(el("p", "profile-status", u.status));
+  view.append(head);
+
+  // About
+  const about = el("div", "profile-section");
+  about.append(el("h3", "", "About"));
+  about.append(el("p", "", u.bio || "No bio yet."));
+  view.append(about);
+
+  // Mates preview (accepted)
+  const matesSec = el("div", "profile-section");
+  matesSec.append(el("h3", "", "Mates"));
+  const mateIds = (DM.mates || []).filter(m => m.status === "accepted").map(m => mateOther(m)).filter(id => id);
+  // If viewing someone else, only show shared context lightly
+  if (uid === S.user.uid && mateIds.length) {
+    const row = el("div", "mate-chips");
+    mateIds.slice(0, 8).forEach(id => {
+      const mu = S.users[id] || {};
+      const chip = el("button", "mate-chip", mu.name || "Mate");
+      chip.onclick = () => openProfile(id);
+      row.append(chip);
+    });
+    if (mateIds.length > 8) row.append(el("span", "muted small", "+" + (mateIds.length - 8) + " more"));
+    matesSec.append(row);
+  } else {
+    matesSec.append(el("p", "muted small", uid === S.user.uid ? "No Mates yet. Add some from the sidebar." : "Mates are private."));
+  }
+  view.append(matesSec);
 
   const actions = el("div", "form");
 
-  // Message (students only)
-  if (uid !== S.user.uid && isStudent() && u.role === "student") {
+  // Message anyone (teachers and students)
+  if (uid !== S.user.uid) {
     const msgBtn = el("button", "btn wide", "Message");
     msgBtn.onclick = () => startDM(uid, u.name || "Student");
     actions.append(msgBtn);
@@ -1349,6 +1527,20 @@ async function openProfile(uid) {
       openProfile(uid);
     };
     actions.append(blkBtn);
+  }
+
+  // Mod: view this user's chats
+  if (S.mod && uid !== S.user.uid) {
+    const viewChats = el("button", "btn wide", "View chats (mod)");
+    viewChats.onclick = async () => {
+      $("profileModal").classList.add("hidden");
+      go("mod");
+      if ($("modChatUser")) {
+        $("modChatUser").value = (u.username || "");
+        await modSearchChats();
+      }
+    };
+    actions.append(viewChats);
   }
 
   // Mod: delete profile (dangerous)
@@ -1397,6 +1589,28 @@ async function unblockUser(otherUid) {
 $("menuBtn").onclick = () => { if (mobile()) appEl.classList.toggle("open"); else appEl.classList.toggle("collapsed"); };
 $("scrim").onclick = () => appEl.classList.remove("open");
 if ($("openMessages")) $("openMessages").onclick = () => { go("dms"); if (mobile()) appEl.classList.remove("open"); };
+
+/* ---------- Settings + profile entry ---------- */
+if ($("openSettings")) $("openSettings").onclick = () => {
+  $("settingsModal").classList.remove("hidden");
+  if (mobile()) appEl.classList.remove("open");
+};
+if ($("settingsClose")) $("settingsClose").onclick = () => $("settingsModal").classList.add("hidden");
+if ($("settingsEditProfile")) $("settingsEditProfile").onclick = () => {
+  $("settingsModal").classList.add("hidden");
+  startOnboarding("edit");
+};
+if ($("settingsPrivacy")) $("settingsPrivacy").onclick = () => {
+  $("settingsModal").classList.add("hidden");
+  $("privacyModal").classList.remove("hidden");
+};
+if ($("privacyClose")) $("privacyClose").onclick = () => $("privacyModal").classList.add("hidden");
+if ($("settingsSignOut")) $("settingsSignOut").onclick = () => signOut(auth);
+if ($("viewMyProfile")) $("viewMyProfile").onclick = () => {
+  if (S.user) openProfile(S.user.uid);
+  if (mobile()) appEl.classList.remove("open");
+};
+
 
 $("groupCancel").onclick = () => $("groupModal").classList.add("hidden");
 $("groupCreate").onclick = createGroupChat;

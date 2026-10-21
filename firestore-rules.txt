@@ -93,7 +93,7 @@ service cloud.firestore {
 
     match /classes/{classId} {
       allow read: if isMember(classId) || isMod();
-      allow create: if isTeacher() && request.resource.data.ownerUid == request.auth.uid
+      allow create: if (isTeacher() || isMod()) && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.keys().hasOnly(['name', 'code', 'ownerUid', 'ownerName', 'createdAt'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
         && request.resource.data.code is string && request.resource.data.code.size() == 6;
@@ -121,7 +121,7 @@ service cloud.firestore {
     }
 
     match /mates/{id} {
-      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow read: if signedIn() && (request.auth.uid in resource.data.participants || isMod());
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['participants', 'names', 'status', 'requestedBy', 'createdAt'])
         && request.resource.data.participants.size() == 2
@@ -191,21 +191,22 @@ service cloud.firestore {
     }
 
     match /conversations/{convId} {
-      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow read: if signedIn() && (request.auth.uid in resource.data.participants || isMod());
       // 1:1 or group (mates) conversations
-      allow create: if isStudent()
+      allow create: if signedIn()
+        && (isStudent() || isTeacher())
         && request.auth.uid in request.resource.data.participants
         && request.resource.data.participants.size() >= 2
         && request.resource.data.participants.size() <= 12
         && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 80
         && request.resource.data.typing == {}
         && (
-          // Classic 1:1 chat
+          // Classic 1:1 chat (any student/teacher to any student/teacher, if mates or same class)
           (request.resource.data.participants.size() == 2
             && !request.resource.data.keys().hasAny(['isGroup'])
             && request.resource.data.keys().hasOnly(['participants', 'classId', 'names', 'createdAt', 'lastAt', 'lastText', 'typing'])
             && !blockedEither(request.resource.data.participants[0], request.resource.data.participants[1])
-            && get(/databases/$(database)/documents/users/$(otherOf(request.resource.data.participants))).data.role == 'student'
+            && get(/databases/$(database)/documents/users/$(otherOf(request.resource.data.participants))).data.role in ['student', 'teacher']
             && (
               (exists(/databases/$(database)/documents/members/$(request.resource.data.classId + '_' + request.auth.uid))
                 && exists(/databases/$(database)/documents/members/$(request.resource.data.classId + '_' + otherOf(request.resource.data.participants))))
@@ -213,7 +214,7 @@ service cloud.firestore {
             )
           )
           ||
-          // Group chat (mates)
+          // Group chat
           (request.resource.data.get('isGroup', false) == true
             && request.resource.data.createdBy == request.auth.uid
             && request.resource.data.keys().hasOnly(['participants', 'classId', 'names', 'createdAt', 'lastAt', 'lastText', 'typing', 'isGroup', 'title', 'createdBy'])
@@ -240,7 +241,7 @@ service cloud.firestore {
       allow delete: if signedIn() && (request.auth.uid in resource.data.participants || isMod());
 
       match /messages/{msgId} {
-        allow read: if signedIn() && request.auth.uid in convParts(convId);
+        allow read: if signedIn() && (request.auth.uid in convParts(convId) || isMod());
         allow create: if signedIn() && request.auth.uid in convParts(convId)
           && request.resource.data.from == request.auth.uid
           && request.resource.data.keys().hasOnly(['from', 'type', 'text', 'gifUrl', 'createdAt', 'editedAt', 'readBy', 'deliveredTo', 'reactions'])
@@ -268,10 +269,11 @@ service cloud.firestore {
     match /comments/{id} {
       allow read: if signedIn() && isMember(resource.data.classId);
       allow create: if signedIn() && isMember(request.resource.data.classId)
-        && request.resource.data.keys().hasOnly(['postId', 'classId', 'author', 'authorName', 'text', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['postId', 'classId', 'author', 'authorName', 'text', 'createdAt', 'parentId'])
         && request.resource.data.author == request.auth.uid
         && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 400
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && (request.resource.data.parentId == null || request.resource.data.parentId is string);
       allow delete: if signedIn() && (resource.data.author == request.auth.uid || canModerate(resource.data.classId) || isMod());
       allow update: if false;
     }

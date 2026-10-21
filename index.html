@@ -47,16 +47,16 @@
       <p class="muted">Add a profile picture, a username, a bio, a contact email, and your name.</p>
       <div class="avatar-row">
         <img id="photoPreview" class="avatar xl empty" alt="">
-        <label class="btn small">Choose photo<input id="photoIn" type="file" accept="image/*" class="fileinput"></label>
+        <label class="btn small">Profile photo<input id="photoIn" type="file" accept="image/*" class="fileinput"></label>
+        <label class="btn small">Cover photo<input id="coverIn" type="file" accept="image/*" class="fileinput"></label>
       </div>
       <div class="form">
         <input class="field" id="pName" maxlength="40" placeholder="Your name">
         <input class="field" id="pUsername" maxlength="20" placeholder="Username (letters, numbers, _)" autocapitalize="none">
         <select class="field" id="pRole">
-          <option value="">Are you a teacher or a student?</option>
-          <option value="teacher">Teacher</option>
           <option value="student">Student</option>
         </select>
+        <p class="muted small" id="roleNote">Everyone starts as a Student. Classroom creators get teacher tools automatically.</p>
         <select class="field" id="pTheme"><option value="default">Theme: Gray</option><option value="ocean">Theme: Ocean</option><option value="forest">Theme: Forest</option><option value="sunset">Theme: Sunset</option><option value="rose">Theme: Rose</option></select>
         <textarea class="field" id="pBio" maxlength="300" rows="3" placeholder="Bio (a few words about you)"></textarea>
         <input class="field" id="pStatus" maxlength="40" placeholder="Status (e.g. In class · busy)">
@@ -117,18 +117,18 @@
   <aside>
     <div class="profile-card" id="profileCard">
       <img id="sideAvatar" class="avatar" alt="">
-      <div><b id="sideName">Student</b><span id="sideBio"></span></div>
+      <div class="side-info"><b id="sideName">Student</b><span id="sideBio"></span></div>
+      <button class="pencil-btn" id="viewMyProfile" title="View profile">✎</button>
     </div>
-    <button class="link" id="editProfile">Edit profile</button>
     <button class="item" id="openMessages">Messages</button>
-    <div class="label">MATES</div>
-    <div id="mateRequests"></div>
-    <div id="mateList"></div>
-    <button class="item" id="addMate">Add a Mate +</button>
+    <button class="item" id="openSettings">Settings</button>
     <div class="label">YOUR CLASSROOMS</div>
     <div id="classList"></div>
     <button class="item" id="addClass">+ Join or create a classroom</button>
-    <button class="item" id="sideSignOut">Sign out</button>
+    <div class="label" style="margin-top:18px">MATES</div>
+    <div id="mateRequests"></div>
+    <div id="mateList"></div>
+    <button class="item" id="addMate">Add a Mate +</button>
   </aside>
   <div class="scrim" id="scrim"></div>
   <main>
@@ -183,7 +183,22 @@
           </div>
         </div>
       </section>
-      <section id="mod" class="hidden"><div id="reports"></div></section>
+      <section id="mod" class="hidden">
+        <h3 style="margin:8px 0">Reports</h3>
+        <div id="reports"></div>
+        <h3 style="margin:20px 0 8px">View chats (mod)</h3>
+        <p class="muted small">Look up a username to see their conversations. Read-only for safety reviews.</p>
+        <div class="form-inline" style="display:flex;gap:8px;margin:8px 0">
+          <input class="field" id="modChatUser" maxlength="20" placeholder="Username" autocapitalize="none" style="flex:1">
+          <button class="btn" id="modChatSearch">Search</button>
+        </div>
+        <div id="modChatList"></div>
+        <div id="modChatView" class="hidden">
+          <button class="link" id="modChatBack">&larr; Back to list</button>
+          <b id="modChatTitle"></b>
+          <div id="modChatMsgs" style="margin-top:12px;max-height:50vh;overflow-y:auto"></div>
+        </div>
+      </section>
     </div>
     <nav class="tabs" id="tabs"></nav>
   </main>
@@ -219,6 +234,34 @@
       <button class="btn" id="groupCreate">Create group</button>
     </div>
     <p id="groupMsg" class="note"></p>
+  </div>
+</div>
+
+
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Settings</h2>
+    <button class="btn wide" id="settingsEditProfile">Edit profile</button>
+    <button class="btn wide" id="settingsPrivacy">Privacy policy</button>
+    <button class="btn wide danger" id="settingsSignOut">Sign out</button>
+    <button class="link" id="settingsClose">Close</button>
+  </div>
+</div>
+
+<div id="privacyModal" class="modal hidden">
+  <div class="modal-box wide-box" style="max-height:80vh;overflow-y:auto;text-align:left">
+    <h2>Privacy Policy</h2>
+    <p class="muted small">Last updated: October 2026</p>
+    <p><b>What Locker is</b><br>Locker is a classroom social app for students to connect with classmates, post, message, and organize school life.</p>
+    <p><b>What we collect</b><br>Account info you provide (name, username, bio, status, photos, email), classroom membership, posts, messages, mates, and basic activity (like last seen for online status).</p>
+    <p><b>How it's used</b><br>To run the app: show your profile, deliver messages, display classroom feeds, and enforce safety (blocks, reports, mods).</p>
+    <p><b>Who can see what</b><br>Classmates in shared classrooms can see posts and your profile basics. Mates and people you message can see more. Mods may remove harmful content or profiles.</p>
+    <p><b>Messages</b><br>Direct and group messages are private to participants. Do not share passwords or private school info.</p>
+    <p><b>Your controls</b><br>Edit or remove posts/comments you made, block users, remove Mates, and sign out anytime. Contact a mod if you need help deleting an account.</p>
+    <p><b>Safety</b><br>Report abuse. Do not use Locker for bullying, harassment, or illegal activity. Mods may remove content or accounts that break these rules.</p>
+    <p><b>Data storage</b><br>Data is stored in Firebase (Google). Keep your login secure.</p>
+    <p class="muted small">This is a school project app. Questions? Ask the app owner (James).</p>
+    <button class="btn" id="privacyClose">Close</button>
   </div>
 </div>
 

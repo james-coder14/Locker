@@ -162,3 +162,46 @@ nav.tabs button.on{color:var(--ink);box-shadow:inset 0 2px 0 var(--ink)}
 /* Online */
 .online-dot{color:#3ddc84;font-size:10px;margin-left:4px}
 .online-text{color:#3ddc84;font-size:13px}
+
+/* Rounder posts / softer UI */
+.post{border-radius:16px;padding:16px;margin:0 0 14px;background:var(--raised);border:1px solid transparent}
+.post .meta{margin-bottom:8px}
+.composer{border-radius:14px;overflow:hidden}
+.composer input{border-radius:14px 0 0 14px}
+.composer button{border-radius:0 14px 14px 0}
+.field{border-radius:12px}
+.btn{border-radius:12px}
+.bubble{border-radius:16px}
+.bubble.me{border-bottom-right-radius:6px}
+.bubble.them{border-bottom-left-radius:6px}
+.modal-box{border-radius:18px}
+.profile-card{border-radius:14px;position:relative}
+
+/* Pencil on sidebar profile */
+.pencil-btn{position:absolute;right:10px;top:10px;background:var(--raised);border:1px solid var(--line);color:var(--ink);width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:16px;display:grid;place-items:center;padding:0;min-height:0}
+.pencil-btn:hover{background:var(--line)}
+.side-info{min-width:0;flex:1}
+
+/* Flat trash */
+.class-del{display:grid;place-items:center;color:var(--muted);opacity:.7}
+.class-del svg{display:block}
+.class-del:hover{color:#e74c3c;opacity:1}
+
+/* Profile hero (cover + avatar) */
+.profile-hero{position:relative;margin:-8px -8px 12px;border-radius:14px 14px 0 0;overflow:visible}
+.profile-cover{height:120px;background:linear-gradient(135deg,#2a2a2a,#1a1a1a);background-size:cover;background-position:center;border-radius:14px 14px 0 0}
+.profile-av-wrap{position:absolute;left:16px;bottom:-36px;border:3px solid var(--panel);border-radius:50%;background:var(--panel)}
+.profile-av-wrap .avatar{display:block}
+.profile-head{padding:44px 8px 8px}
+.profile-head h2{margin:0 0 4px;font-size:22px}
+.profile-status{margin:6px 0 0;color:var(--muted)}
+.profile-section{margin:16px 0;padding:12px;background:var(--raised);border-radius:14px;text-align:left}
+.profile-section h3{margin:0 0 8px;font-size:15px}
+.profile-section p{margin:0;line-height:1.45}
+.mate-chips{display:flex;flex-wrap:wrap;gap:8px}
+.mate-chip{background:var(--panel);border:1px solid var(--line);color:var(--ink);padding:6px 12px;border-radius:20px;font:inherit;font-size:13px;cursor:pointer;min-height:0}
+
+/* Comment replies */
+.comment{position:relative;padding-right:48px}
+.comment-acts{position:absolute;right:0;top:2px}
+.comment.reply{margin-left:16px;padding-left:10px;border-left:2px solid var(--line);opacity:.95}
