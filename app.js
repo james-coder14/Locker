@@ -474,7 +474,7 @@ function renderSideClasses() {
     if (isOwnerOf(c) || S.mod) {
       const del = el("button", "class-del", ""); del.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>';
       del.title = "Delete classroom";
-      del.onclick = (e) => {
+      del.onclick = async (e) => {
         e.stopPropagation();
         deleteClassroom(c);
       };
@@ -821,7 +821,7 @@ function renderMembers() {
     info.append(el("span", "", (roleLabel[m.role] || "Student") + (u.username ? " · @" + u.username : "") + (u.status ? " · " + u.status : "")));
     if (u.bio) info.append(el("span", "", u.bio));
     r.append(info);
-    r.onclick = (e) => {
+    r.onclick = async (e) => {
       if (e.target.closest("select, button")) return;
       openProfile(m.uid);
     };
@@ -836,7 +836,7 @@ function renderMembers() {
         .then(() => toast("Role updated."))
         .catch(() => toast("Could not change role."));
       const rm = el("button", "btn small", "Remove");
-      rm.onclick = (e) => {
+      rm.onclick = async (e) => {
         e.stopPropagation();
         if (!await showConfirm("Remove " + (u.name || "this person") + " from the classroom?")) return;
         deleteDoc(doc(db, "members", m.id)).then(() => toast("Removed.")).catch(() => toast("Could not remove."));
