@@ -16,6 +16,63 @@ const appEl = $("app");
 const mobile = () => matchMedia("(max-width:720px)").matches;
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 function toast(t) { const d = el("div", "toast", t); document.body.appendChild(d); setTimeout(() => d.remove(), 2600); }
+
+/* ---------- Pretty dialogs (replace alert/confirm/prompt) ---------- */
+let _dialogResolve = null;
+function _closeDialog() {
+  $("appDialog").classList.add("hidden");
+  $("dialogInput").classList.add("hidden");
+  $("dialogInput").value = "";
+  $("dialogCancel").classList.remove("hidden");
+}
+function showAlert(msg) {
+  return new Promise(resolve => {
+    _dialogResolve = (v) => { _closeDialog(); resolve(true); };
+    $("dialogMsg").textContent = msg;
+    $("dialogInput").classList.add("hidden");
+    $("dialogCancel").classList.add("hidden");
+    $("dialogOk").textContent = "OK";
+    $("appDialog").classList.remove("hidden");
+  });
+}
+function showConfirm(msg) {
+  return new Promise(resolve => {
+    _dialogResolve = (v) => { _closeDialog(); resolve(!!v); };
+    $("dialogMsg").textContent = msg;
+    $("dialogInput").classList.add("hidden");
+    $("dialogCancel").classList.remove("hidden");
+    $("dialogOk").textContent = "OK";
+    $("appDialog").classList.remove("hidden");
+  });
+}
+function showPrompt(msg, def) {
+  return new Promise(resolve => {
+    _dialogResolve = (v) => { _closeDialog(); resolve(v); };
+    $("dialogMsg").textContent = msg;
+    const inp = $("dialogInput");
+    inp.classList.remove("hidden");
+    inp.value = def || "";
+    $("dialogCancel").classList.remove("hidden");
+    $("dialogOk").textContent = "OK";
+    $("appDialog").classList.remove("hidden");
+    setTimeout(() => inp.focus(), 50);
+  });
+}
+if ($("dialogOk")) $("dialogOk").onclick = () => {
+  const inp = $("dialogInput");
+  const isPrompt = !inp.classList.contains("hidden");
+  if (_dialogResolve) _dialogResolve(isPrompt ? inp.value : true);
+  _dialogResolve = null;
+};
+if ($("dialogCancel")) $("dialogCancel").onclick = () => {
+  if (_dialogResolve) _dialogResolve(null);
+  _dialogResolve = null;
+  _closeDialog();
+};
+if ($("dialogInput")) $("dialogInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") $("dialogOk").click();
+});
+
 function onErr(e) {
   if (!e) return;
   if (e.code === "permission-denied") toast("You do not have access to that.");
@@ -117,10 +174,21 @@ $("resendBtn").onclick = async () => {
 $("backBtn").onclick = () => signOut(auth);
 if ($("sideSignOut")) $("sideSignOut").onclick = () => signOut(auth);
 
+function closeAllModals() {
+  ["settingsModal", "privacyModal", "profileModal", "mateModal", "groupModal", "appDialog"].forEach(id => {
+    const n = $(id);
+    if (n) n.classList.add("hidden");
+  });
+}
+
 onAuthStateChanged(auth, async user => {
   unsubAll();
   S.user = user; S.profile = null; S.mod = false; S.cls = null; S.classes = [];
-  if (!user) { show("login"); return; }
+  if (!user) {
+    closeAllModals();
+    show("login");
+    return;
+  }
   if (!user.emailVerified) { show("verify"); return; }
   try {
     const snap = await getDoc(doc(db, "users", user.uid));
@@ -419,7 +487,7 @@ function renderSideClasses() {
 async function deleteClassroom(cls) {
   if (!cls) return;
   if (!(isOwnerOf(cls) || S.mod)) return toast("Only the owner or a mod can delete this classroom.");
-  const typed = window.prompt("To delete this classroom, type its name exactly:\n" + cls.name);
+  const typed = await showPrompt("To delete this classroom, type its name exactly:\n" + cls.name);
   if (typed === null) return;
   if (typed.trim() !== cls.name) return toast("The name did not match. Classroom not deleted.");
   try {
@@ -770,7 +838,7 @@ function renderMembers() {
       const rm = el("button", "btn small", "Remove");
       rm.onclick = (e) => {
         e.stopPropagation();
-        if (!window.confirm("Remove " + (u.name || "this person") + " from the classroom?")) return;
+        if (!await showConfirm("Remove " + (u.name || "this person") + " from the classroom?")) return;
         deleteDoc(doc(db, "members", m.id)).then(() => toast("Removed.")).catch(() => toast("Could not remove."));
       };
       const act = el("div", "member-actions");
@@ -784,7 +852,7 @@ function renderMembers() {
 $("deleteClass").onclick = async () => {
   if (!S.cls || !isOwnerOf(S.cls)) return;
   const cls = S.cls;
-  const typed = window.prompt("To delete this classroom, type its name exactly:\n" + cls.name);
+  const typed = await showPrompt("To delete this classroom, type its name exactly:\n" + cls.name);
   if (typed === null) return;
   if (typed.trim() !== cls.name) return toast("The name did not match. Classroom not deleted.");
   try {
@@ -867,39 +935,39 @@ function renderModUserTools(uid, userName, u) {
   };
 
   row("Mute 1 hour", async () => {
-    const r = window.prompt("Mute reason:") || "moderation";
+    const r = await showPrompt("Mute reason:") || "moderation";
     await modMute(uid, 1, r);
   });
   row("Mute 24 hours", async () => {
-    const r = window.prompt("Mute reason:") || "moderation";
+    const r = await showPrompt("Mute reason:") || "moderation";
     await modMute(uid, 24, r);
   });
   row("Unmute", () => modUnmute(uid));
   row("Warn (staff note)", async () => {
-    const t = window.prompt("Warning note (mods only):");
+    const t = await showPrompt("Warning note (mods only):");
     if (t) await modWarn(uid, t);
   });
   row("View warnings", async () => {
     const ws = await loadWarnings(uid);
     if (!ws.length) return toast("No warnings.");
-    alert(ws.map(w => new Date(w.at).toLocaleString() + " — " + (w.byLabel || LOCKER_STAFF) + "\n" + w.text).join("\n\n"));
+    await showAlert(ws.map(w => new Date(w.at).toLocaleString() + " — " + (w.byLabel || LOCKER_STAFF) + "\n" + w.text).join("\n\n"));
   });
   row(u.shadowbanned ? "Lift shadowban" : "Shadowban", () => modShadowban(uid, !u.shadowbanned), !u.shadowbanned);
   if (S.cls) {
     row("Kick from " + (S.cls.name || "class"), async () => {
-      if (!window.confirm("Kick from this classroom?")) return;
+      if (!await showConfirm("Kick from this classroom?")) return;
       await modKickFromClass(uid, S.cls.classId);
     });
     row("Nuke posts in this class", () => modNukeUserContent(uid), true);
   }
   if (u.username) {
     row("Ban username @" + u.username, async () => {
-      if (!window.confirm("Ban this username?")) return;
+      if (!await showConfirm("Ban this username?")) return;
       await modBanUsername(u.username);
     }, true);
   }
   row("Delete profile", async () => {
-    if (!window.confirm("PERMANENTLY delete profile data?")) return;
+    if (!await showConfirm("PERMANENTLY delete profile data?")) return;
     try {
       await deleteDoc(doc(db, "users", uid));
       if (u.username) await deleteDoc(doc(db, "usernames", u.username)).catch(() => {});
@@ -989,7 +1057,7 @@ async function modOpenChat(conv, title) {
       if (m.text) row.append(el("p", "", m.text));
       const del = el("button", "link small", "Delete msg");
       del.onclick = async () => {
-        if (!window.confirm("Delete this message?")) return;
+        if (!await showConfirm("Delete this message?")) return;
         try {
           await deleteDoc(doc(db, "conversations", conv.id, "messages", m.id));
           row.remove();
@@ -1284,7 +1352,7 @@ async function openGroupMenu() {
     if (uid !== S.user.uid && (conv.createdBy === S.user.uid || S.mod)) {
       const rm = el("button", "btn small", "Remove");
       rm.onclick = async () => {
-        if (!window.confirm("Remove " + name + " from this group?")) return;
+        if (!await showConfirm("Remove " + name + " from this group?")) return;
         try {
           const newParts = conv.participants.filter(u => u !== uid);
           const newNames = { ...(conv.names || {}) };
@@ -1313,7 +1381,7 @@ async function openGroupMenu() {
   // Leave group
   const leave = el("button", "btn wide", "Leave group");
   leave.onclick = async () => {
-    if (!window.confirm("Leave this group chat?")) return;
+    if (!await showConfirm("Leave this group chat?")) return;
     try {
       const newParts = (conv.participants || []).filter(u => u !== S.user.uid);
       if (newParts.length < 2) {
@@ -1344,7 +1412,7 @@ async function openGroupMenu() {
   if (conv.createdBy === S.user.uid || S.mod) {
     const del = el("button", "btn wide danger", "Delete group chat");
     del.onclick = async () => {
-      if (!window.confirm("Delete this group chat for everyone? This cannot be undone.")) return;
+      if (!await showConfirm("Delete this group chat for everyone? This cannot be undone.")) return;
       try {
         await deleteDoc(doc(db, "conversations", conv.id));
         toast("Group deleted.");
@@ -1459,7 +1527,7 @@ async function toggleReact(m, e) {
 }
 
 async function editMsg(m) {
-  const t = window.prompt("Edit your message", m.text || "");
+  const t = await showPrompt("Edit your message", m.text || "");
   if (t === null) return;
   const text = t.trim();
   if (!text) return toast("Message cannot be empty.");
@@ -1498,7 +1566,7 @@ $("dmEmoji").onclick = () => $("emojiBar").classList.toggle("hidden");
 
 $("dmGif").onclick = async () => {
   if (!configured(settings.giphyKey)) return toast("GIFs are not set up yet.");
-  const q = window.prompt("Search for a GIF");
+  const q = await showPrompt("Search for a GIF");
   if (!q) return;
   const panel = $("gifPanel");
   panel.textContent = ""; panel.classList.remove("hidden");
@@ -1533,7 +1601,7 @@ async function sendReportEmail(params) {
   } catch (e) { return false; }
 }
 async function reportDM(m) {
-  const reason = window.prompt("Why are you reporting this message?");
+  const reason = await showPrompt("Why are you reporting this message?");
   if (reason === null) return;
   const text = m.text || (m.type === "gif" ? "[GIF]" : "");
   try {
@@ -1642,7 +1710,7 @@ async function modBanUsername(name) {
 }
 
 async function modNukeUserContent(uid) {
-  if (!window.confirm("NUKE: delete this user's posts, comments, and polls in the CURRENT classroom? This is messy and permanent.")) return;
+  if (!await showConfirm("NUKE: delete this user's posts, comments, and polls in the CURRENT classroom? This is messy and permanent.")) return;
   if (!S.cls) return toast("Select a classroom first.");
   const cid = S.cls.classId;
   let n = 0;
@@ -1671,7 +1739,7 @@ async function loadWarnings(uid) {
 async function sendAnonNote(toUid) {
   if (!S.user || toUid === S.user.uid) return;
   if (!(await assertNotMuted())) return;
-  const text = window.prompt("Send an anonymous note (be kind — mods can still review reports):");
+  const text = await showPrompt("Send an anonymous note (be kind — mods can still review reports):");
   if (!text || !text.trim()) return;
   try {
     await addDoc(collection(db, "anonNotes"), {
@@ -1837,7 +1905,7 @@ async function openProfile(uid) {
   if (mateDoc) {
     const rmMate = el("button", "btn wide", "Remove Mate");
     rmMate.onclick = async () => {
-      if (!window.confirm("Remove " + (u.name || "this person") + " as a Mate?")) return;
+      if (!await showConfirm("Remove " + (u.name || "this person") + " as a Mate?")) return;
       try {
         await deleteDoc(doc(db, "mates", mateDoc.id));
         toast("Mate removed.");
@@ -1856,7 +1924,7 @@ async function openProfile(uid) {
         await unblockUser(uid);
         toast("Unblocked.");
       } else {
-        if (!window.confirm("Block " + (u.name || "this person") + "? They won't be able to message you or send Mate requests.")) return;
+        if (!await showConfirm("Block " + (u.name || "this person") + "? They won't be able to message you or send Mate requests.")) return;
         await blockUser(uid);
         toast("Blocked.");
       }
@@ -1916,7 +1984,10 @@ if ($("settingsPrivacy")) $("settingsPrivacy").onclick = () => {
   $("privacyModal").classList.remove("hidden");
 };
 if ($("privacyClose")) $("privacyClose").onclick = () => $("privacyModal").classList.add("hidden");
-if ($("settingsSignOut")) $("settingsSignOut").onclick = () => signOut(auth);
+if ($("settingsSignOut")) $("settingsSignOut").onclick = () => {
+  closeAllModals();
+  signOut(auth);
+};
 if ($("viewMyProfile")) $("viewMyProfile").onclick = () => {
   if (S.user) openProfile(S.user.uid);
   if (mobile()) appEl.classList.remove("open");
@@ -1963,7 +2034,7 @@ if ($("modLockClass")) $("modLockClass").onclick = () => {
 };
 if ($("modBanNameBtn")) $("modBanNameBtn").onclick = async () => {
   if (!S.mod) return toast("Mods only.");
-  const name = window.prompt("Username to ban (without @):");
+  const name = await showPrompt("Username to ban (without @):");
   if (!name) return;
   await modBanUsername(name.trim().toLowerCase());
 };

@@ -217,3 +217,49 @@ aside .profile-card .avatar{border-radius:50%!important;width:48px;height:48px}
 .group-sub{display:block;font-size:12px;color:var(--muted);font-weight:400}
 #chat.group-chat .chat-head{background:linear-gradient(90deg,rgba(91,141,239,.12),transparent);border-radius:12px;padding:8px 10px;margin-bottom:6px}
 #chatName{line-height:1.25}
+
+/* Custom dialogs (replace browser prompt/confirm) */
+.dialog-box{max-width:340px;text-align:left}
+.dialog-msg{margin:0 0 14px;line-height:1.5;white-space:pre-wrap;color:var(--ink);font-size:15px}
+.dialog-actions{display:flex;justify-content:flex-end;gap:10px;align-items:center;margin-top:8px}
+.dialog-actions .btn{min-width:72px}
+#dialogInput{margin:0 0 12px}
+
+/* App dialog on top of other modals */
+#appDialog{z-index:70}
+#appDialog .modal-box{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:22px 20px;
+  box-shadow:0 16px 48px rgba(0,0,0,.45);
+}
+#appDialog .dialog-msg{
+  margin:0 0 16px;
+  line-height:1.55;
+  font-size:15px;
+  color:var(--ink);
+  white-space:pre-wrap;
+}
+#appDialog #dialogInput{
+  margin:0 0 14px;
+  border-radius:12px;
+  background:var(--raised);
+  border:1px solid var(--line);
+  color:var(--ink);
+  padding:12px 14px;
+}
+#appDialog .dialog-actions{
+  margin-top:4px;
+  gap:12px;
+}
+#appDialog .dialog-actions .link{
+  color:var(--muted);
+  min-height:44px;
+  padding:0 12px;
+}
+#appDialog .dialog-actions .btn{
+  border-radius:12px;
+  min-width:88px;
+  min-height:44px;
+}
