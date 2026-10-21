@@ -221,7 +221,7 @@ service cloud.firestore {
           // Group chat
           (request.resource.data.get('isGroup', false) == true
             && request.resource.data.createdBy == request.auth.uid
-            && request.resource.data.keys().hasOnly(['participants', 'classId', 'names', 'createdAt', 'lastAt', 'lastText', 'typing', 'isGroup', 'title', 'createdBy'])
+            && request.resource.data.keys().hasOnly(['participants', 'classId', 'names', 'createdAt', 'lastAt', 'lastText', 'typing', 'isGroup', 'title', 'createdBy', 'color'])
             && request.resource.data.title is string
             && request.resource.data.title.size() > 0
             && request.resource.data.title.size() <= 40
@@ -310,7 +310,7 @@ service cloud.firestore {
     match /warnings/{id} {
       allow read: if isMod();
       allow create: if isMod()
-        && request.resource.data.keys().hasOnly(['uid', 'text', 'by', 'at'])
+        && request.resource.data.keys().hasOnly(['uid', 'text', 'by', 'byLabel', 'at'])
         && request.resource.data.by == request.auth.uid
         && request.resource.data.uid is string
         && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500;
@@ -329,6 +329,19 @@ service cloud.firestore {
       allow create: if isMod()
         && request.resource.data.by == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    match /anonNotes/{id} {
+      allow read: if signedIn() && (resource.data.to == request.auth.uid || isMod());
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['to', 'from', 'text', 'at', 'read'])
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to != request.auth.uid
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 280
+        && request.resource.data.read == false;
+      allow update: if signedIn() && resource.data.to == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isMod() || (signedIn() && resource.data.to == request.auth.uid);
     }
   }
 }

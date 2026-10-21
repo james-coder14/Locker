@@ -32,6 +32,7 @@ function isStudent() { return !!S.profile && S.profile.role === "student"; }
 function convIdFor(a, b) { return [a, b].sort().join("_"); }
 
 /* ---------- State ---------- */
+const LOCKER_STAFF = "The Locker Staff";
 const S = { user: null, profile: null, mod: false, classes: [], cls: null, posts: [], likes: [], events: [], reports: [], members: [], comments: {}, polls: [], users: {}, clsUnsubs: [], tab: "feed", onboardMode: "new", photoData: "", pendingClassId: null, myRole: null };
 const DM = { convs: [], convUnsub: null, msgs: [], msgUnsub: null, cur: null, reactOpen: null, menuOpen: null, mates: [], matesUnsub: null };
 const EMOJIS = ["😀", "😂", "❤️", "👍", "🔥", "😮", "😢", "🙏", "🎉", "😎", "🤔", "👏"];
@@ -849,6 +850,66 @@ function renderReports() {
 }
 
 /* ---------- Mod: view any user's chats (read-only) ---------- */
+
+function renderModUserTools(uid, userName, u) {
+  const box = $("modUserTools");
+  if (!box || !S.mod) return;
+  box.classList.remove("hidden");
+  box.textContent = "";
+  box.append(el("b", "", userName + (u.username ? " · @" + u.username : "")));
+  box.append(el("p", "muted small", "Actions signed as " + LOCKER_STAFF));
+
+  const row = (label, fn, danger) => {
+    const b = el("button", "btn wide" + (danger ? " danger" : ""), label);
+    b.style.marginTop = "8px";
+    b.onclick = fn;
+    box.append(b);
+  };
+
+  row("Mute 1 hour", async () => {
+    const r = window.prompt("Mute reason:") || "moderation";
+    await modMute(uid, 1, r);
+  });
+  row("Mute 24 hours", async () => {
+    const r = window.prompt("Mute reason:") || "moderation";
+    await modMute(uid, 24, r);
+  });
+  row("Unmute", () => modUnmute(uid));
+  row("Warn (staff note)", async () => {
+    const t = window.prompt("Warning note (mods only):");
+    if (t) await modWarn(uid, t);
+  });
+  row("View warnings", async () => {
+    const ws = await loadWarnings(uid);
+    if (!ws.length) return toast("No warnings.");
+    alert(ws.map(w => new Date(w.at).toLocaleString() + " — " + (w.byLabel || LOCKER_STAFF) + "\n" + w.text).join("\n\n"));
+  });
+  row(u.shadowbanned ? "Lift shadowban" : "Shadowban", () => modShadowban(uid, !u.shadowbanned), !u.shadowbanned);
+  if (S.cls) {
+    row("Kick from " + (S.cls.name || "class"), async () => {
+      if (!window.confirm("Kick from this classroom?")) return;
+      await modKickFromClass(uid, S.cls.classId);
+    });
+    row("Nuke posts in this class", () => modNukeUserContent(uid), true);
+  }
+  if (u.username) {
+    row("Ban username @" + u.username, async () => {
+      if (!window.confirm("Ban this username?")) return;
+      await modBanUsername(u.username);
+    }, true);
+  }
+  row("Delete profile", async () => {
+    if (!window.confirm("PERMANENTLY delete profile data?")) return;
+    try {
+      await deleteDoc(doc(db, "users", uid));
+      if (u.username) await deleteDoc(doc(db, "usernames", u.username)).catch(() => {});
+      await modLog("delete_profile", uid, u.username || "");
+      toast("Profile deleted. — " + LOCKER_STAFF);
+      box.classList.add("hidden");
+    } catch (e) { toast("Could not delete profile."); }
+  }, true);
+}
+
 async function modSearchChats() {
   if (!S.mod) return toast("Mods only.");
   const uname = (($("modChatUser") && $("modChatUser").value) || "").trim().toLowerCase();
@@ -862,10 +923,12 @@ async function modSearchChats() {
     if (!us.exists()) return toast("No user with that username.");
     const uid = us.data().uid;
     let userName = uname;
+    let uData = {};
     try {
       const u = await getDoc(doc(db, "users", uid));
-      if (u.exists()) userName = u.data().name || uname;
+      if (u.exists()) { uData = u.data(); userName = uData.name || uname; }
     } catch (e) {}
+    renderModUserTools(uid, userName, uData);
     // Query conversations this user is in
     const snap = await getDocs(query(collection(db, "conversations"), where("participants", "array-contains", uid)));
     if (!snap.docs.length) {
@@ -1068,6 +1131,11 @@ function renderConvs() {
     r.style.cursor = "pointer";
     const info = el("div", "info");
     const label = c.isGroup ? ("👥 " + title) : title;
+    if (c.isGroup && c.color) {
+      const dot = el("span", "group-dot", "");
+      dot.style.background = c.color;
+      info.append(dot);
+    }
     info.append(el("b", "", label), el("span", "", c.lastText || ""));
     r.append(info);
     r.onclick = () => openChat(c.id, other, title, !!c.isGroup);
@@ -1109,12 +1177,15 @@ async function createGroupChat() {
   const names = { [me]: S.profile.name || "Student" };
   checks.forEach(c => { names[c.value] = c.dataset.name || "Student"; });
   try {
+    const colors = ["#5b8def", "#e07a5f", "#81b29a", "#f2cc8f", "#9b5de5", "#00bbf9"];
+    const color = colors[Math.floor(Math.random() * colors.length)];
     const ref = await addDoc(collection(db, "conversations"), {
       participants,
       names,
       classId: S.cls ? S.cls.classId : "none",
       isGroup: true,
       title: title.slice(0, 40),
+      color,
       createdBy: me,
       createdAt: Date.now(),
       lastAt: Date.now(),
@@ -1164,9 +1235,20 @@ function openChat(id, otherUid, otherName, isGroup) {
   $("convList").classList.add("hidden");
   $("chat").classList.remove("hidden");
   const nameEl = $("chatName");
-  nameEl.textContent = isGroup ? ("👥 " + otherName) : otherName;
-  nameEl.style.cursor = isGroup ? "pointer" : "";
-  nameEl.onclick = isGroup ? () => openGroupMenu() : null;
+  if (isGroup) {
+    const conv = DM.convs.find(c => c.id === id);
+    const n = conv && conv.participants ? conv.participants.length : "";
+    nameEl.innerHTML = '<span class="group-title">👥 ' + (otherName || "Group") + '</span>' +
+      (n ? '<span class="group-sub">' + n + ' members · tap for options</span>' : '<span class="group-sub">tap for options</span>');
+    nameEl.style.cursor = "pointer";
+    nameEl.onclick = () => openGroupMenu();
+    $("chat").classList.add("group-chat");
+  } else {
+    nameEl.textContent = otherName;
+    nameEl.style.cursor = "";
+    nameEl.onclick = null;
+    $("chat").classList.remove("group-chat");
+  }
   $("emojiBar").classList.add("hidden");
   $("gifPanel").classList.add("hidden");
   closeChatSub();
@@ -1467,7 +1549,7 @@ async function reportDM(m) {
 async function modLog(action, targetUid, detail) {
   try {
     await addDoc(collection(db, "modLogs"), {
-      by: S.user.uid, action, targetUid: targetUid || null,
+      by: S.user.uid, byLabel: LOCKER_STAFF, action, targetUid: targetUid || null,
       detail: (detail || "").slice(0, 300), at: Date.now()
     });
   } catch (e) {}
@@ -1490,7 +1572,7 @@ async function assertNotMuted() {
   const m = await isUserMuted(S.user.uid);
   if (m) {
     const mins = Math.ceil((m.until - Date.now()) / 60000);
-    toast("You're muted for about " + mins + " more minute(s). Reason: " + (m.reason || "moderation"));
+    toast("You're muted for about " + mins + " more minute(s). Reason: " + (m.reason || "moderation") + " — " + LOCKER_STAFF);
     return false;
   }
   return true;
@@ -1506,27 +1588,27 @@ async function modMute(uid, hours, reason) {
     until, reason: (reason || "").slice(0, 200), by: S.user.uid, at: Date.now()
   });
   await modLog("mute", uid, hours + "h: " + reason);
-  toast("Muted for " + hours + " hour(s).");
+  toast("Muted for " + hours + " hour(s). — " + LOCKER_STAFF);
 }
 
 async function modUnmute(uid) {
   await deleteDoc(doc(db, "mutes", uid));
   await modLog("unmute", uid, "");
-  toast("Unmuted.");
+  toast("Unmuted. — " + LOCKER_STAFF);
 }
 
 async function modWarn(uid, text) {
   await addDoc(collection(db, "warnings"), {
-    uid, text: text.slice(0, 500), by: S.user.uid, at: Date.now()
+    uid, text: text.slice(0, 500), by: S.user.uid, byLabel: LOCKER_STAFF, at: Date.now()
   });
   await modLog("warn", uid, text);
-  toast("Warning saved (mods only).");
+  toast("Warning saved — signed as " + LOCKER_STAFF + ".");
 }
 
 async function modShadowban(uid, on) {
   await updateDoc(doc(db, "users", uid), { shadowbanned: !!on });
   await modLog(on ? "shadowban" : "unshadowban", uid, "");
-  toast(on ? "Shadowbanned — their posts hide from others." : "Shadowban lifted.");
+  toast((on ? "Shadowbanned — their posts hide from others." : "Shadowban lifted.") + " — " + LOCKER_STAFF);
 }
 
 async function modKickFromClass(uid, classId) {
@@ -1584,6 +1666,53 @@ async function loadWarnings(uid) {
 }
 
 
+
+/* ---------- Anonymous notes (opt-in, teen-friendly) ---------- */
+async function sendAnonNote(toUid) {
+  if (!S.user || toUid === S.user.uid) return;
+  if (!(await assertNotMuted())) return;
+  const text = window.prompt("Send an anonymous note (be kind — mods can still review reports):");
+  if (!text || !text.trim()) return;
+  try {
+    await addDoc(collection(db, "anonNotes"), {
+      to: toUid,
+      from: S.user.uid, // stored for mod safety, never shown to recipient
+      text: text.trim().slice(0, 280),
+      at: Date.now(),
+      read: false
+    });
+    toast("Note sent anonymously.");
+  } catch (e) {
+    console.error(e);
+    toast("Could not send note.");
+  }
+}
+
+async function loadMyNotes() {
+  if (!S.user) return [];
+  try {
+    const snap = await getDocs(query(collection(db, "anonNotes"), where("to", "==", S.user.uid), limit(30)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0));
+  } catch (e) { return []; }
+}
+
+async function openMyNotes() {
+  const notes = await loadMyNotes();
+  const view = $("profileView");
+  view.textContent = "";
+  view.append(el("h2", "", "Anonymous notes"));
+  view.append(el("p", "muted small", "Only you see these. Be careful who you open notes from."));
+  if (!notes.length) view.append(el("p", "note", "No notes yet."));
+  notes.forEach(n => {
+    const card = el("div", "profile-section");
+    card.append(el("p", "", n.text));
+    card.append(el("span", "muted small", when(n.at) + " · anonymous"));
+    view.append(card);
+    if (!n.read) updateDoc(doc(db, "anonNotes", n.id), { read: true }).catch(() => {});
+  });
+  $("profileModal").classList.remove("hidden");
+}
+
 async function openProfile(uid) {
   if (!uid) return;
   let u = S.users[uid];
@@ -1625,25 +1754,67 @@ async function openProfile(uid) {
   about.append(el("p", "", u.bio || "No bio yet."));
   view.append(about);
 
-  // Mates preview (accepted)
+  // Mates — public on every profile
   const matesSec = el("div", "profile-section");
   matesSec.append(el("h3", "", "Mates"));
-  const mateIds = (DM.mates || []).filter(m => m.status === "accepted").map(m => mateOther(m)).filter(id => id);
-  // If viewing someone else, only show shared context lightly
-  if (uid === S.user.uid && mateIds.length) {
-    const row = el("div", "mate-chips");
-    mateIds.slice(0, 8).forEach(id => {
-      const mu = S.users[id] || {};
-      const chip = el("button", "mate-chip", mu.name || "Mate");
-      chip.onclick = () => openProfile(id);
-      row.append(chip);
-    });
-    if (mateIds.length > 8) row.append(el("span", "muted small", "+" + (mateIds.length - 8) + " more"));
-    matesSec.append(row);
+  const mateIds = (DM.mates || []).filter(m => m.status === "accepted" && (m.participants || []).includes(uid)).map(m => {
+    return (m.participants || []).find(p => p !== uid) || mateOther(m);
+  }).filter(Boolean);
+  // When viewing own profile use full list; when viewing other, mates list is from THEIR accepted mates
+  // We only have current user's mates loaded — for others, query is heavier; use what we know
+  let showIds = [];
+  if (uid === S.user.uid) {
+    showIds = (DM.mates || []).filter(m => m.status === "accepted").map(m => mateOther(m)).filter(Boolean);
   } else {
-    matesSec.append(el("p", "muted small", uid === S.user.uid ? "No Mates yet. Add some from the sidebar." : "Mates are private."));
+    // People who are mates with both of us, plus load from their side if we share a mate edge
+    showIds = (DM.mates || []).filter(m => m.status === "accepted" && (m.participants || []).includes(uid)).map(m => {
+      const other = (m.participants || []).find(p => p !== uid);
+      return other === S.user.uid ? null : other;
+    }).filter(Boolean);
+    // Always show if viewer is mates with them
+    if ((DM.mates || []).some(m => m.status === "accepted" && (m.participants || []).includes(uid))) {
+      // list other mutuals only for now; still show count via chips of mutuals
+    }
   }
+  // Better: for any profile, if we have accepted mate with them OR viewing self, list mates from DM.mates for self;
+  // for other users fetch their mate docs
+  matesSec.dataset.uid = uid;
+  matesSec.append(el("p", "muted small", "Loading mates…"));
   view.append(matesSec);
+  (async () => {
+    try {
+      let ids = [];
+      if (uid === S.user.uid) {
+        ids = (DM.mates || []).filter(m => m.status === "accepted").map(m => mateOther(m)).filter(Boolean);
+      } else {
+        const snap = await getDocs(query(collection(db, "mates"), where("participants", "array-contains", uid)));
+        ids = snap.docs.map(d => d.data()).filter(m => m.status === "accepted").map(m => {
+          const parts = m.participants || [];
+          return parts.find(p => p !== uid);
+        }).filter(Boolean);
+      }
+      await ensureUsers(ids);
+      matesSec.textContent = "";
+      matesSec.append(el("h3", "", "Mates · " + ids.length));
+      if (!ids.length) {
+        matesSec.append(el("p", "muted small", "No Mates yet."));
+        return;
+      }
+      const row = el("div", "mate-chips");
+      ids.slice(0, 12).forEach(id => {
+        const mu = S.users[id] || {};
+        const chip = el("button", "mate-chip", mu.name || "Mate");
+        chip.onclick = () => openProfile(id);
+        row.append(chip);
+      });
+      if (ids.length > 12) row.append(el("span", "muted small", "+" + (ids.length - 12) + " more"));
+      matesSec.append(row);
+    } catch (e) {
+      matesSec.textContent = "";
+      matesSec.append(el("h3", "", "Mates"));
+      matesSec.append(el("p", "muted small", "Could not load mates."));
+    }
+  })();
 
   const actions = el("div", "form");
 
@@ -1652,6 +1823,13 @@ async function openProfile(uid) {
     const msgBtn = el("button", "btn wide", "Message");
     msgBtn.onclick = () => startDM(uid, u.name || "Student");
     actions.append(msgBtn);
+    const noteBtn = el("button", "btn wide", "Send anonymous note");
+    noteBtn.onclick = () => sendAnonNote(uid);
+    actions.append(noteBtn);
+  } else {
+    const myNotes = el("button", "btn wide", "My anonymous notes");
+    myNotes.onclick = () => openMyNotes();
+    actions.append(myNotes);
   }
 
   // Remove Mate (if they are accepted mates)
@@ -1685,105 +1863,6 @@ async function openProfile(uid) {
       openProfile(uid);
     };
     actions.append(blkBtn);
-  }
-
-  // ===== MOD PANEL =====
-  if (S.mod && uid !== S.user.uid) {
-    actions.append(el("h3", "", "Mod tools"));
-
-    const viewChats = el("button", "btn wide", "View chats");
-    viewChats.onclick = async () => {
-      $("profileModal").classList.add("hidden");
-      go("mod");
-      if ($("modChatUser")) {
-        $("modChatUser").value = (u.username || "");
-        await modSearchChats();
-      }
-    };
-    actions.append(viewChats);
-
-    // Mute
-    const muteRow = el("div", "form-inline");
-    muteRow.style.display = "flex"; muteRow.style.gap = "8px"; muteRow.style.marginTop = "8px";
-    const mute1 = el("button", "btn small", "Mute 1h");
-    mute1.onclick = async () => {
-      const r = window.prompt("Mute reason (optional):") || "moderation";
-      await modMute(uid, 1, r);
-    };
-    const mute24 = el("button", "btn small", "Mute 24h");
-    mute24.onclick = async () => {
-      const r = window.prompt("Mute reason (optional):") || "moderation";
-      await modMute(uid, 24, r);
-    };
-    const unmute = el("button", "btn small", "Unmute");
-    unmute.onclick = () => modUnmute(uid);
-    muteRow.append(mute1, mute24, unmute);
-    actions.append(muteRow);
-
-    // Warn
-    const warnBtn = el("button", "btn wide", "Warn (mod note)");
-    warnBtn.onclick = async () => {
-      const t = window.prompt("Warning note (only mods see this):");
-      if (!t) return;
-      await modWarn(uid, t);
-    };
-    actions.append(warnBtn);
-
-    // View warnings
-    const warnListBtn = el("button", "btn wide", "View warnings");
-    warnListBtn.onclick = async () => {
-      const ws = await loadWarnings(uid);
-      if (!ws.length) return toast("No warnings on file.");
-      alert(ws.map(w => new Date(w.at).toLocaleString() + ": " + w.text).join("\n\n"));
-    };
-    actions.append(warnListBtn);
-
-    // Shadowban
-    const sb = el("button", "btn wide" + (u.shadowbanned ? "" : " danger"), u.shadowbanned ? "Lift shadowban" : "Shadowban");
-    sb.onclick = () => modShadowban(uid, !u.shadowbanned);
-    actions.append(sb);
-
-    // Kick from current class
-    if (S.cls) {
-      const kick = el("button", "btn wide", "Kick from " + (S.cls.name || "class"));
-      kick.onclick = async () => {
-        if (!window.confirm("Remove them from this classroom?")) return;
-        await modKickFromClass(uid, S.cls.classId);
-        $("profileModal").classList.add("hidden");
-      };
-      actions.append(kick);
-    }
-
-    // Ban username
-    if (u.username) {
-      const banU = el("button", "btn wide danger", "Ban username @" + u.username);
-      banU.onclick = async () => {
-        if (!window.confirm("Ban @" + u.username + " so nobody can take that name?")) return;
-        await modBanUsername(u.username);
-      };
-      actions.append(banU);
-    }
-
-    // Nuke content in current class
-    if (S.cls) {
-      const nuke = el("button", "btn wide danger", "Nuke posts in this class");
-      nuke.onclick = () => modNukeUserContent(uid);
-      actions.append(nuke);
-    }
-
-    // Delete profile
-    const delBtn = el("button", "btn wide danger", "Delete profile");
-    delBtn.onclick = async () => {
-      if (!window.confirm("PERMANENTLY delete this user's profile data?")) return;
-      try {
-        await deleteDoc(doc(db, "users", uid));
-        if (u.username) await deleteDoc(doc(db, "usernames", u.username)).catch(() => {});
-        await modLog("delete_profile", uid, u.username || "");
-        toast("Profile data deleted.");
-        $("profileModal").classList.add("hidden");
-      } catch (e) { toast("Could not delete profile."); }
-    };
-    actions.append(delBtn);
   }
 
   view.append(actions);
@@ -1827,6 +1906,10 @@ if ($("settingsClose")) $("settingsClose").onclick = () => $("settingsModal").cl
 if ($("settingsEditProfile")) $("settingsEditProfile").onclick = () => {
   $("settingsModal").classList.add("hidden");
   startOnboarding("edit");
+};
+if ($("settingsNotes")) $("settingsNotes").onclick = () => {
+  $("settingsModal").classList.add("hidden");
+  openMyNotes();
 };
 if ($("settingsPrivacy")) $("settingsPrivacy").onclick = () => {
   $("settingsModal").classList.add("hidden");

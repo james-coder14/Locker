@@ -210,3 +210,10 @@ nav.tabs button.on{color:var(--ink);box-shadow:inset 0 2px 0 var(--ink)}
 .comment.reply{margin-left:16px;padding-left:10px;border-left:2px solid var(--line);opacity:.95}
 
 aside .profile-card .avatar{border-radius:50%!important;width:48px;height:48px}
+
+/* Group chat pizazz */
+.group-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:middle}
+.group-title{display:block;font-weight:700}
+.group-sub{display:block;font-size:12px;color:var(--muted);font-weight:400}
+#chat.group-chat .chat-head{background:linear-gradient(90deg,rgba(91,141,239,.12),transparent);border-radius:12px;padding:8px 10px;margin-bottom:6px}
+#chatName{line-height:1.25}
