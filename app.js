@@ -524,12 +524,27 @@ function renderPosts() {
   const box = $("posts"); box.textContent = "";
   if (!S.cls) { box.append(el("p", "note", "You're not in a classroom yet. Open the menu and tap + Join or create a classroom.")); return; }
 
-  // Merge posts + polls by time
+  // Merge posts + polls; pins first; hide shadowbanned from non-mods
+  let posts = S.posts.slice();
+  if (!S.mod) {
+    posts = posts.filter(p => {
+      const au = S.users[p.author];
+      return !(au && au.shadowbanned);
+    });
+  }
   const feed = [
-    ...S.posts.map(p => ({ kind: "post", at: ms(p.createdAt), item: p })),
-    ...S.polls.map(p => ({ kind: "poll", at: ms(p.createdAt), item: p }))
-  ].sort((a, b) => b.at - a.at);
+    ...posts.map(p => ({ kind: "post", at: ms(p.createdAt), pinned: !!p.pinned, item: p })),
+    ...S.polls.map(p => ({ kind: "poll", at: ms(p.createdAt), pinned: false, item: p }))
+  ].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return b.at - a.at;
+  });
 
+  if (classIsLocked()) {
+    const lockNote = el("p", "note", "🔒 This classroom feed is locked." + (S.mod || isOwnerOf(S.cls) ? " (You can still post as mod/owner.)" : ""));
+    box.append(lockNote);
+  }
   if (!feed.length) box.append(el("p", "note", "No posts yet. Say hi to your classmates!"));
 
   feed.forEach(entry => {
@@ -554,6 +569,11 @@ function renderPosts() {
     const rb = el("button", "", "Report");
     rb.onclick = () => report(p);
     a.append(lb, cb, rb);
+    if (S.mod) {
+      const pin = el("button", "", p.pinned ? "Unpin" : "Pin");
+      pin.onclick = () => modPinPost(p.id, !p.pinned);
+      a.append(pin);
+    }
     if (p.author === S.user.uid || isOwnerOf(S.cls) || S.myRole === "admin" || S.mod) {
       const x = el("button", "", "Delete");
       x.onclick = () => deleteDoc(doc(db, "posts", p.id)).catch(onErr);
@@ -637,6 +657,8 @@ function toggleCommentBox(postId) {
 async function sendComment(postId, input, parentId) {
   const text = (input.value || "").trim();
   if (!text || !S.cls) return;
+  if (classIsLocked() && !S.mod && !isOwnerOf(S.cls)) return toast("This classroom feed is locked.");
+  if (!(await assertNotMuted())) return;
   try {
     const payload = {
       postId, classId: S.cls.classId, author: S.user.uid,
@@ -694,6 +716,8 @@ async function report(p) {
 $("postBtn").onclick = async () => {
   const input = $("newPost"), text = input.value.trim();
   if (!text || !S.cls) return;
+  if (classIsLocked() && !S.mod && !isOwnerOf(S.cls)) return toast("This classroom feed is locked.");
+  if (!(await assertNotMuted())) return;
   try {
     await addDoc(collection(db, "posts"), { text, author: S.user.uid, authorName: S.profile.name || "Student", classId: S.cls.classId, createdAt: serverTimestamp() });
     input.value = "";
@@ -900,6 +924,17 @@ async function modOpenChat(conv, title) {
         row.append(g);
       }
       if (m.text) row.append(el("p", "", m.text));
+      const del = el("button", "link small", "Delete msg");
+      del.onclick = async () => {
+        if (!window.confirm("Delete this message?")) return;
+        try {
+          await deleteDoc(doc(db, "conversations", conv.id, "messages", m.id));
+          row.remove();
+          await modLog("delete_msg", m.from, conv.id);
+          toast("Message deleted.");
+        } catch (e) { toast("Could not delete."); }
+      };
+      row.append(del);
       box.append(row);
     });
   } catch (e) {
@@ -1096,6 +1131,7 @@ async function createGroupChat() {
 }
 async function startDM(otherUid, otherName) {
   if (!S.profile) return toast("Profile not loaded.");
+  if (!(await assertNotMuted())) return;
   if (otherUid === S.user.uid) return;
   const me = S.user.uid, id = convIdFor(me, otherUid);
   let exists = false;
@@ -1426,6 +1462,128 @@ async function reportDM(m) {
 }
 
 /* ---------- Profile view + Block + Remove Mate ---------- */
+
+/* ---------- Mod power tools ---------- */
+async function modLog(action, targetUid, detail) {
+  try {
+    await addDoc(collection(db, "modLogs"), {
+      by: S.user.uid, action, targetUid: targetUid || null,
+      detail: (detail || "").slice(0, 300), at: Date.now()
+    });
+  } catch (e) {}
+}
+
+async function isUserMuted(uid) {
+  try {
+    const snap = await getDoc(doc(db, "mutes", uid));
+    if (!snap.exists()) return false;
+    const d = snap.data();
+    if (d.until && d.until > Date.now()) return d;
+    // expired — clean up
+    await deleteDoc(doc(db, "mutes", uid)).catch(() => {});
+    return false;
+  } catch (e) { return false; }
+}
+
+async function assertNotMuted() {
+  if (S.mod) return true;
+  const m = await isUserMuted(S.user.uid);
+  if (m) {
+    const mins = Math.ceil((m.until - Date.now()) / 60000);
+    toast("You're muted for about " + mins + " more minute(s). Reason: " + (m.reason || "moderation"));
+    return false;
+  }
+  return true;
+}
+
+function classIsLocked() {
+  return !!(S.cls && S.cls.locked);
+}
+
+async function modMute(uid, hours, reason) {
+  const until = Date.now() + hours * 3600 * 1000;
+  await setDoc(doc(db, "mutes", uid), {
+    until, reason: (reason || "").slice(0, 200), by: S.user.uid, at: Date.now()
+  });
+  await modLog("mute", uid, hours + "h: " + reason);
+  toast("Muted for " + hours + " hour(s).");
+}
+
+async function modUnmute(uid) {
+  await deleteDoc(doc(db, "mutes", uid));
+  await modLog("unmute", uid, "");
+  toast("Unmuted.");
+}
+
+async function modWarn(uid, text) {
+  await addDoc(collection(db, "warnings"), {
+    uid, text: text.slice(0, 500), by: S.user.uid, at: Date.now()
+  });
+  await modLog("warn", uid, text);
+  toast("Warning saved (mods only).");
+}
+
+async function modShadowban(uid, on) {
+  await updateDoc(doc(db, "users", uid), { shadowbanned: !!on });
+  await modLog(on ? "shadowban" : "unshadowban", uid, "");
+  toast(on ? "Shadowbanned — their posts hide from others." : "Shadowban lifted.");
+}
+
+async function modKickFromClass(uid, classId) {
+  await deleteDoc(doc(db, "members", classId + "_" + uid));
+  await modLog("kick", uid, classId);
+  toast("Kicked from classroom.");
+}
+
+async function modToggleLockClass() {
+  if (!S.cls) return;
+  const locked = !S.cls.locked;
+  await updateDoc(doc(db, "classes", S.cls.classId), { locked, lockedBy: S.user.uid });
+  S.cls.locked = locked;
+  await modLog(locked ? "lock_class" : "unlock_class", null, S.cls.classId);
+  toast(locked ? "Classroom feed locked." : "Classroom unlocked.");
+  renderPosts();
+}
+
+async function modPinPost(postId, pinned) {
+  await updateDoc(doc(db, "posts", postId), { pinned: !!pinned });
+  await modLog(pinned ? "pin" : "unpin", null, postId);
+  toast(pinned ? "Pinned." : "Unpinned.");
+}
+
+async function modBanUsername(name) {
+  name = (name || "").toLowerCase();
+  if (!/^[a-z0-9_]{3,20}$/.test(name)) return toast("Invalid username.");
+  await setDoc(doc(db, "bannedUsernames", name), { by: S.user.uid, at: Date.now() });
+  await modLog("ban_username", null, name);
+  toast("Username banned.");
+}
+
+async function modNukeUserContent(uid) {
+  if (!window.confirm("NUKE: delete this user's posts, comments, and polls in the CURRENT classroom? This is messy and permanent.")) return;
+  if (!S.cls) return toast("Select a classroom first.");
+  const cid = S.cls.classId;
+  let n = 0;
+  try {
+    const posts = await getDocs(query(collection(db, "posts"), where("classId", "==", cid), where("author", "==", uid)));
+    for (const d of posts.docs) { await deleteDoc(d.ref); n++; }
+    const comments = await getDocs(query(collection(db, "comments"), where("classId", "==", cid), where("author", "==", uid)));
+    for (const d of comments.docs) { await deleteDoc(d.ref); n++; }
+    const polls = await getDocs(query(collection(db, "polls"), where("classId", "==", cid), where("author", "==", uid)));
+    for (const d of polls.docs) { await deleteDoc(d.ref); n++; }
+  } catch (e) { console.error(e); }
+  await modLog("nuke", uid, cid + " count=" + n);
+  toast("Nuked " + n + " item(s) in this classroom.");
+}
+
+async function loadWarnings(uid) {
+  try {
+    const snap = await getDocs(query(collection(db, "warnings"), where("uid", "==", uid), limit(20)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0));
+  } catch (e) { return []; }
+}
+
+
 async function openProfile(uid) {
   if (!uid) return;
   let u = S.users[uid];
@@ -1529,9 +1687,11 @@ async function openProfile(uid) {
     actions.append(blkBtn);
   }
 
-  // Mod: view this user's chats
+  // ===== MOD PANEL =====
   if (S.mod && uid !== S.user.uid) {
-    const viewChats = el("button", "btn wide", "View chats (mod)");
+    actions.append(el("h3", "", "Mod tools"));
+
+    const viewChats = el("button", "btn wide", "View chats");
     viewChats.onclick = async () => {
       $("profileModal").classList.add("hidden");
       go("mod");
@@ -1541,16 +1701,84 @@ async function openProfile(uid) {
       }
     };
     actions.append(viewChats);
-  }
 
-  // Mod: delete profile (dangerous)
-  if (S.mod && uid !== S.user.uid) {
-    const delBtn = el("button", "btn wide danger", "Delete profile (mod)");
+    // Mute
+    const muteRow = el("div", "form-inline");
+    muteRow.style.display = "flex"; muteRow.style.gap = "8px"; muteRow.style.marginTop = "8px";
+    const mute1 = el("button", "btn small", "Mute 1h");
+    mute1.onclick = async () => {
+      const r = window.prompt("Mute reason (optional):") || "moderation";
+      await modMute(uid, 1, r);
+    };
+    const mute24 = el("button", "btn small", "Mute 24h");
+    mute24.onclick = async () => {
+      const r = window.prompt("Mute reason (optional):") || "moderation";
+      await modMute(uid, 24, r);
+    };
+    const unmute = el("button", "btn small", "Unmute");
+    unmute.onclick = () => modUnmute(uid);
+    muteRow.append(mute1, mute24, unmute);
+    actions.append(muteRow);
+
+    // Warn
+    const warnBtn = el("button", "btn wide", "Warn (mod note)");
+    warnBtn.onclick = async () => {
+      const t = window.prompt("Warning note (only mods see this):");
+      if (!t) return;
+      await modWarn(uid, t);
+    };
+    actions.append(warnBtn);
+
+    // View warnings
+    const warnListBtn = el("button", "btn wide", "View warnings");
+    warnListBtn.onclick = async () => {
+      const ws = await loadWarnings(uid);
+      if (!ws.length) return toast("No warnings on file.");
+      alert(ws.map(w => new Date(w.at).toLocaleString() + ": " + w.text).join("\n\n"));
+    };
+    actions.append(warnListBtn);
+
+    // Shadowban
+    const sb = el("button", "btn wide" + (u.shadowbanned ? "" : " danger"), u.shadowbanned ? "Lift shadowban" : "Shadowban");
+    sb.onclick = () => modShadowban(uid, !u.shadowbanned);
+    actions.append(sb);
+
+    // Kick from current class
+    if (S.cls) {
+      const kick = el("button", "btn wide", "Kick from " + (S.cls.name || "class"));
+      kick.onclick = async () => {
+        if (!window.confirm("Remove them from this classroom?")) return;
+        await modKickFromClass(uid, S.cls.classId);
+        $("profileModal").classList.add("hidden");
+      };
+      actions.append(kick);
+    }
+
+    // Ban username
+    if (u.username) {
+      const banU = el("button", "btn wide danger", "Ban username @" + u.username);
+      banU.onclick = async () => {
+        if (!window.confirm("Ban @" + u.username + " so nobody can take that name?")) return;
+        await modBanUsername(u.username);
+      };
+      actions.append(banU);
+    }
+
+    // Nuke content in current class
+    if (S.cls) {
+      const nuke = el("button", "btn wide danger", "Nuke posts in this class");
+      nuke.onclick = () => modNukeUserContent(uid);
+      actions.append(nuke);
+    }
+
+    // Delete profile
+    const delBtn = el("button", "btn wide danger", "Delete profile");
     delBtn.onclick = async () => {
-      if (!window.confirm("PERMANENTLY delete this user's profile data? This cannot be undone easily.")) return;
+      if (!window.confirm("PERMANENTLY delete this user's profile data?")) return;
       try {
         await deleteDoc(doc(db, "users", uid));
         if (u.username) await deleteDoc(doc(db, "usernames", u.username)).catch(() => {});
+        await modLog("delete_profile", uid, u.username || "");
         toast("Profile data deleted.");
         $("profileModal").classList.add("hidden");
       } catch (e) { toast("Could not delete profile."); }
@@ -1644,3 +1872,15 @@ if ($("memberSearch")) {
 }
 
 // Patch renderMembers to filter by search - we need to modify it
+
+if ($("modLockClass")) $("modLockClass").onclick = () => {
+  if (!S.cls) return toast("Select a classroom first.");
+  if (!S.mod && !isOwnerOf(S.cls)) return toast("Mods only.");
+  modToggleLockClass();
+};
+if ($("modBanNameBtn")) $("modBanNameBtn").onclick = async () => {
+  if (!S.mod) return toast("Mods only.");
+  const name = window.prompt("Username to ban (without @):");
+  if (!name) return;
+  await modBanUsername(name.trim().toLowerCase());
+};

@@ -77,6 +77,9 @@ service cloud.firestore {
       // Heartbeat only (lastSeen)
       allow update: if signedIn() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen']);
+      // Mod: shadowban flag only
+      allow update: if isMod()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shadowbanned']);
       allow delete: if isMod();
     }
 
@@ -148,7 +151,8 @@ service cloud.firestore {
         && request.resource.data.authorName is string && request.resource.data.authorName.size() > 0 && request.resource.data.authorName.size() <= 40
         && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000
         && request.resource.data.createdAt == request.time;
-      allow update: if false;
+      allow update: if isMod()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinned']);
       allow delete: if signedIn() && (resource.data.author == request.auth.uid || canModerate(resource.data.classId) || isMod());
     }
 
@@ -262,7 +266,7 @@ service cloud.firestore {
             && request.resource.data.readBy.diff(resource.data.readBy).affectedKeys().hasOnly([request.auth.uid])
             && request.resource.data.deliveredTo.diff(resource.data.deliveredTo).affectedKeys().hasOnly([request.auth.uid])
             && request.resource.data.reactions.diff(resource.data.reactions).affectedKeys().hasOnly([request.auth.uid])));
-        allow delete: if false;
+        allow delete: if isMod();
       }
     }
 
@@ -291,6 +295,40 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
         && request.resource.data.votes.diff(resource.data.votes).affectedKeys().hasOnly([request.auth.uid]);
       allow delete: if signedIn() && (resource.data.author == request.auth.uid || canModerate(resource.data.classId) || isMod());
+    }
+
+    match /mutes/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isMod());
+      allow create, update: if isMod()
+        && request.resource.data.keys().hasOnly(['until', 'reason', 'by', 'at'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.until is int
+        && request.resource.data.reason is string && request.resource.data.reason.size() <= 200;
+      allow delete: if isMod();
+    }
+
+    match /warnings/{id} {
+      allow read: if isMod();
+      allow create: if isMod()
+        && request.resource.data.keys().hasOnly(['uid', 'text', 'by', 'at'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.uid is string
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500;
+      allow delete: if isMod();
+      allow update: if false;
+    }
+
+    match /bannedUsernames/{name} {
+      allow read: if signedIn();
+      allow create, delete: if isMod();
+      allow update: if false;
+    }
+
+    match /modLogs/{id} {
+      allow read: if isMod();
+      allow create: if isMod()
+        && request.resource.data.by == request.auth.uid;
+      allow update, delete: if false;
     }
   }
 }
