@@ -1963,6 +1963,115 @@ async function unblockUser(otherUid) {
 /* ---------- Menu and drawer ---------- */
 $("menuBtn").onclick = () => { if (mobile()) appEl.classList.toggle("open"); else appEl.classList.toggle("collapsed"); };
 $("scrim").onclick = () => appEl.classList.remove("open");
+
+/* ---------- Voice / video calls (Jitsi Meet — free, no API key) ---------- */
+function callRoomId() {
+  if (!DM.cur || !DM.cur.id) return null;
+  // Stable room per conversation so both sides join the same place
+  return "Locker" + DM.cur.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 40);
+}
+
+function startCall(video) {
+  if (!DM.cur) return toast("Open a chat first.");
+  const room = callRoomId();
+  if (!room) return toast("Could not start call.");
+  const title = DM.cur.name || (DM.cur.isGroup ? "Group call" : "Call");
+  $("callTitle").textContent = (video ? "Video" : "Voice") + " · " + title;
+  $("callHint").textContent = video
+    ? "Allow camera & mic when asked. Anyone in this chat can join the same room."
+    : "Allow microphone when asked. Camera stays off unless you turn it on.";
+  const box = $("jitsiContainer");
+  box.textContent = "";
+  // Embed Jitsi — free public servers. School networks sometimes block it.
+  const domain = "meet.jit.si";
+  const options = {
+    roomName: room,
+    width: "100%",
+    height: "100%",
+    parentNode: box,
+    userInfo: {
+      displayName: (S.profile && S.profile.name) || "Student"
+    },
+    configOverwrite: {
+      startWithAudioMuted: false,
+      startWithVideoMuted: !video,
+      prejoinPageEnabled: true,
+      disableDeepLinking: true
+    },
+    interfaceConfigOverwrite: {
+      TOOLBAR_BUTTONS: [
+        "microphone", "camera", "desktop", "hangup",
+        "chat", "tileview", "fullscreen"
+      ],
+      SHOW_JITSI_WATERMARK: false,
+      SHOW_WATERMARK_FOR_GUESTS: false
+    }
+  };
+  $("callModal").classList.remove("hidden");
+  // Notify the chat so the other person knows to join
+  try {
+    if (DM.cur && DM.cur.id) {
+      addDoc(collection(db, "conversations", DM.cur.id, "messages"), {
+        from: S.user.uid,
+        type: "text",
+        text: (video ? "📹 Started a video call — tap 📹 in this chat to join." : "📞 Started a voice call — tap 📞 in this chat to join."),
+        gifUrl: null,
+        createdAt: serverTimestamp(),
+        editedAt: null,
+        readBy: { [S.user.uid]: true },
+        deliveredTo: { [S.user.uid]: true },
+        reactions: {}
+      }).catch(() => {});
+      updateDoc(doc(db, "conversations", DM.cur.id), {
+        lastAt: Date.now(),
+        lastText: video ? "📹 Video call" : "📞 Voice call"
+      }).catch(() => {});
+    }
+  } catch (e) {}
+  // Prefer external API if loaded; else iframe fallback
+  if (window.JitsiMeetExternalAPI) {
+    try {
+      if (window._jitsiApi) {
+        try { window._jitsiApi.dispose(); } catch (e) {}
+        window._jitsiApi = null;
+      }
+      window._jitsiApi = new window.JitsiMeetExternalAPI(domain, options);
+      window._jitsiApi.addListener("readyToClose", endCall);
+      return;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  // iframe fallback (works without loading the API script)
+  const iframe = document.createElement("iframe");
+  iframe.allow = "camera; microphone; fullscreen; display-capture; autoplay";
+  iframe.allowFullscreen = true;
+  const params = new URLSearchParams({
+    "config.startWithVideoMuted": String(!video),
+    "config.prejoinPageEnabled": "true",
+    "userInfo.displayName": (S.profile && S.profile.name) || "Student",
+    "interfaceConfig.SHOW_JITSI_WATERMARK": "false"
+  });
+  iframe.src = "https://" + domain + "/" + room + "#" + params.toString();
+  iframe.title = "Locker call";
+  box.appendChild(iframe);
+}
+
+function endCall() {
+  if (window._jitsiApi) {
+    try { window._jitsiApi.dispose(); } catch (e) {}
+    window._jitsiApi = null;
+  }
+  const box = $("jitsiContainer");
+  if (box) box.textContent = "";
+  $("callModal").classList.add("hidden");
+}
+
+if ($("callAudio")) $("callAudio").onclick = () => startCall(false);
+if ($("callVideo")) $("callVideo").onclick = () => startCall(true);
+if ($("callClose")) $("callClose").onclick = endCall;
+
+
 if ($("openMessages")) $("openMessages").onclick = () => { go("dms"); if (mobile()) appEl.classList.remove("open"); };
 
 /* ---------- Settings + profile entry ---------- */
