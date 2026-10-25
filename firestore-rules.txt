@@ -343,5 +343,20 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       allow delete: if isMod() || (signedIn() && resource.data.to == request.auth.uid);
     }
+
+    match /confessions/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['text', 'author', 'grade', 'hearts', 'at'])
+        && request.resource.data.author == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 500
+        && request.resource.data.hearts == {}
+        && request.resource.data.at is int;
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hearts']);
+      allow delete: if signedIn() && (resource.data.author == request.auth.uid || isMod());
+    }
   }
 }

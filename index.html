@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#121212">
 <title>Locker</title>
-<link rel="stylesheet" href="style.css?v=24">
+<link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
 
@@ -52,6 +52,7 @@
       </div>
       <div class="form">
         <input class="field" id="pName" maxlength="40" placeholder="Your name">
+        <select class="field" id="pGrade"><option value="">Grade (optional)</option><option>Grade 7</option><option>Grade 8</option><option>Grade 9</option><option>Grade 10</option><option>Grade 11</option><option>Grade 12</option><option>Freshman</option><option>Sophomore</option><option>Junior</option><option>Senior</option></select>
         <input class="field" id="pUsername" maxlength="20" placeholder="Username (letters, numbers, _)" autocapitalize="none">
         <select class="field" id="pRole">
           <option value="student">Student</option>
@@ -115,20 +116,28 @@
 
 <div id="app" class="app hidden">
   <aside>
+    <div class="school-brand" id="schoolBrand">
+      <div class="school-icon">🔔</div>
+      <div>
+        <b id="schoolName">Locker</b>
+        <span class="muted small" id="schoolSub">Your school network</span>
+      </div>
+    </div>
     <div class="profile-card" id="profileCard">
       <img id="sideAvatar" class="avatar" alt="">
       <div class="side-info"><b id="sideName">Student</b><span id="sideBio"></span></div>
       <button class="pencil-btn" id="viewMyProfile" title="View profile">✎</button>
     </div>
+    <button class="item" id="openConfessions">🔔 Confessions</button>
     <button class="item" id="openMessages">Messages</button>
     <button class="item" id="openSettings">Settings</button>
-    <div class="label">YOUR CLASSROOMS</div>
+    <div class="label">CLASSROOMS</div>
     <div id="classList"></div>
-    <button class="item" id="addClass">+ Join or create a classroom</button>
-    <div class="label" style="margin-top:18px">MATES</div>
+    <button class="item quiet" id="addClass">+ Join or create</button>
+    <div class="label">MATES</div>
     <div id="mateRequests"></div>
     <div id="mateList"></div>
-    <button class="item" id="addMate">Add a Mate +</button>
+    <button class="item quiet" id="addMate">+ Add a Mate</button>
   </aside>
   <div class="scrim" id="scrim"></div>
   <main>
@@ -157,6 +166,25 @@
         <input class="field" id="memberSearch" placeholder="Search classmates..." style="margin:8px 0">
         <div id="memberList"></div>
         <button class="link hidden" id="deleteClass">Delete this classroom</button></section>
+      
+      <section id="confessions" class="hidden">
+        <div class="conf-header">
+          <div class="conf-title-row">
+            <h2>🔔 Confessions</h2>
+          </div>
+          <p class="muted small">Anonymous school feed. Be kind — mods can still remove abuse.</p>
+          <div class="conf-pills" id="confPills">
+            <span class="pill pill-new" id="confNewPill">0 New</span>
+            <span class="pill pill-online" id="confOnlinePill">0 Online</span>
+          </div>
+        </div>
+        <div class="conf-compose">
+          <input class="field" id="confInput" maxlength="500" placeholder="Say something anonymously…">
+          <button class="btn" id="confPost">Post</button>
+        </div>
+        <div id="confList"></div>
+      </section>
+
       <section id="calendar" class="hidden">
         <div id="evForm" class="form hidden">
           <input class="field" id="evTitle" maxlength="100" placeholder="Event title">
@@ -170,14 +198,7 @@
           <button class="btn wide" id="newGroupBtn" style="margin:8px 0 12px">New group chat</button>
         </div>
         <div id="chat" class="hidden">
-          <div class="chat-head">
-            <button class="link" id="backChat">&larr; Back</button>
-            <b id="chatName"></b>
-            <div class="call-btns">
-              <button class="icon-btn" id="callAudio" title="Voice call" aria-label="Voice call">📞</button>
-              <button class="icon-btn" id="callVideo" title="Video call" aria-label="Video call">📹</button>
-            </div>
-          </div>
+          <div class="chat-head"><button class="link" id="backChat">&larr; Back</button><b id="chatName"></b></div>
           <div id="msgs"></div>
           <div id="emojiBar" class="emoji-bar hidden"></div>
           <div id="gifPanel" class="gif-drop hidden"></div>
@@ -232,8 +253,7 @@
   </div>
 </div>
 
-<script src="https://meet.jit.si/external_api.js" async></script>
-<script type="module" src="app.js?v=24"></script>
+<script type="module" src="app.js?v=26"></script>
 
 <div id="groupModal" class="modal hidden">
   <div class="modal-box">
@@ -295,15 +315,6 @@
 </div>
 
 
-<div id="callModal" class="modal hidden">
-  <div class="modal-box call-box">
-    <div class="call-top">
-      <b id="callTitle">Call</b>
-      <button class="link" id="callClose">End / close</button>
-    </div>
-    <p class="muted small" id="callHint">Connecting… Share this chat so others can join the same room.</p>
-    <div id="jitsiContainer" class="jitsi-wrap"></div>
-  </div>
 </div>
 
 </body>

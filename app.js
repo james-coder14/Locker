@@ -97,6 +97,12 @@ const REACTS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 function resetClass() { S.clsUnsubs.forEach(u => u()); S.clsUnsubs = []; }
 function unsubAll() {
+  try { if (confUnsub) { confUnsub(); confUnsub = null; } } catch (e) {}
+
+  if (typeof confUnsub === "function" && confUnsub) { try { confUnsub(); } catch(e) {} confUnsub = null; }
+  _unsubAllInner();
+}
+function _unsubAllInner() {
   resetClass();
   if (DM.convUnsub) DM.convUnsub();
   if (DM.matesUnsub) DM.matesUnsub();
@@ -286,6 +292,7 @@ async function saveProfile() {
   const status = ($("pStatus") && $("pStatus").value.trim().slice(0, 40)) || "";
   const data = {
     name, bio, contactEmail, username, role, theme, status,
+    grade: ($("pGrade") && $("pGrade").value) || (S.profile && S.profile.grade) || "",
     photo: S.photoData || (S.profile && S.profile.photo) || "",
     cover: S.coverData || (S.profile && S.profile.cover) || "",
     onboarded: !!(S.profile && S.profile.onboarded),
@@ -424,7 +431,19 @@ async function loadClasses() {
   S.classes = list.filter(Boolean);
 }
 
+
+function updateSchoolBrand() {
+  const nameEl = $("schoolName");
+  const subEl = $("schoolSub");
+  if (!nameEl) return;
+  // Prefer first classroom name as "school" flavor, else Locker
+  const cls = (S.classes && S.classes[0] && S.classes[0].name) || null;
+  nameEl.textContent = "Locker";
+  if (subEl) subEl.textContent = cls ? ("Active in " + cls) : "Your school network";
+}
+
 function renderProfileCard() {
+  try { updateSchoolBrand(); } catch (e) {}
   const p = S.profile || {};
   const img = $("sideAvatar");
   img.src = p.photo || ""; img.classList.toggle("empty", !p.photo);
@@ -581,6 +600,8 @@ function renderTabs() {
 }
 function go(tab) {
   S.tab = tab;
+  if ($("openConfessions")) $("openConfessions").classList.toggle("on", tab === "confessions");
+
   ["feed", "members", "calendar", "dms", "mod"].forEach(k => $(k).classList.toggle("hidden", k !== tab));
   const titles = { feed: S.cls ? S.cls.name : "No classroom yet", members: "Classmates", calendar: "Calendar", dms: "Messages", mod: "Moderation" };
   if (tab !== "feed" && tab !== "members" && tab !== "calendar" && tab !== "dms" && tab !== "mod") return;
@@ -1964,112 +1985,124 @@ async function unblockUser(otherUid) {
 $("menuBtn").onclick = () => { if (mobile()) appEl.classList.toggle("open"); else appEl.classList.toggle("collapsed"); };
 $("scrim").onclick = () => appEl.classList.remove("open");
 
-/* ---------- Voice / video calls (Jitsi Meet — free, no API key) ---------- */
-function callRoomId() {
-  if (!DM.cur || !DM.cur.id) return null;
-  // Stable room per conversation so both sides join the same place
-  return "Locker" + DM.cur.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 40);
-}
 
-function startCall(video) {
-  if (!DM.cur) return toast("Open a chat first.");
-  const room = callRoomId();
-  if (!room) return toast("Could not start call.");
-  const title = DM.cur.name || (DM.cur.isGroup ? "Group call" : "Call");
-  $("callTitle").textContent = (video ? "Video" : "Voice") + " · " + title;
-  $("callHint").textContent = video
-    ? "Allow camera & mic when asked. Anyone in this chat can join the same room."
-    : "Allow microphone when asked. Camera stays off unless you turn it on.";
-  const box = $("jitsiContainer");
-  box.textContent = "";
-  // Embed Jitsi — free public servers. School networks sometimes block it.
-  const domain = "meet.jit.si";
-  const options = {
-    roomName: room,
-    width: "100%",
-    height: "100%",
-    parentNode: box,
-    userInfo: {
-      displayName: (S.profile && S.profile.name) || "Student"
-    },
-    configOverwrite: {
-      startWithAudioMuted: false,
-      startWithVideoMuted: !video,
-      prejoinPageEnabled: true,
-      disableDeepLinking: true
-    },
-    interfaceConfigOverwrite: {
-      TOOLBAR_BUTTONS: [
-        "microphone", "camera", "desktop", "hangup",
-        "chat", "tileview", "fullscreen"
-      ],
-      SHOW_JITSI_WATERMARK: false,
-      SHOW_WATERMARK_FOR_GUESTS: false
-    }
-  };
-  $("callModal").classList.remove("hidden");
-  // Notify the chat so the other person knows to join
-  try {
-    if (DM.cur && DM.cur.id) {
-      addDoc(collection(db, "conversations", DM.cur.id, "messages"), {
-        from: S.user.uid,
-        type: "text",
-        text: (video ? "📹 Started a video call — tap 📹 in this chat to join." : "📞 Started a voice call — tap 📞 in this chat to join."),
-        gifUrl: null,
-        createdAt: serverTimestamp(),
-        editedAt: null,
-        readBy: { [S.user.uid]: true },
-        deliveredTo: { [S.user.uid]: true },
-        reactions: {}
-      }).catch(() => {});
-      updateDoc(doc(db, "conversations", DM.cur.id), {
-        lastAt: Date.now(),
-        lastText: video ? "📹 Video call" : "📞 Voice call"
-      }).catch(() => {});
-    }
-  } catch (e) {}
-  // Prefer external API if loaded; else iframe fallback
-  if (window.JitsiMeetExternalAPI) {
-    try {
-      if (window._jitsiApi) {
-        try { window._jitsiApi.dispose(); } catch (e) {}
-        window._jitsiApi = null;
-      }
-      window._jitsiApi = new window.JitsiMeetExternalAPI(domain, options);
-      window._jitsiApi.addListener("readyToClose", endCall);
-      return;
-    } catch (e) {
-      console.error(e);
-    }
-  }
-  // iframe fallback (works without loading the API script)
-  const iframe = document.createElement("iframe");
-  iframe.allow = "camera; microphone; fullscreen; display-capture; autoplay";
-  iframe.allowFullscreen = true;
-  const params = new URLSearchParams({
-    "config.startWithVideoMuted": String(!video),
-    "config.prejoinPageEnabled": "true",
-    "userInfo.displayName": (S.profile && S.profile.name) || "Student",
-    "interfaceConfig.SHOW_JITSI_WATERMARK": "false"
+/* ---------- Confessions (anonymous school feed) ---------- */
+let confUnsub = null;
+function openConfessions() {
+  S.tab = "confessions";
+  ["feed","members","calendar","dms","mod","confessions"].forEach(id => {
+    const n = $(id);
+    if (n) n.classList.toggle("hidden", id !== "confessions");
   });
-  iframe.src = "https://" + domain + "/" + room + "#" + params.toString();
-  iframe.title = "Locker call";
-  box.appendChild(iframe);
+  $("title").textContent = "Confessions";
+  $("classCode").textContent = "";
+  // highlight sidebar
+  document.querySelectorAll("aside .item").forEach(el => el.classList.remove("on"));
+  if ($("openConfessions")) $("openConfessions").classList.add("on");
+  renderTabs();
+  subscribeConfessions();
+  if (mobile()) appEl.classList.remove("open");
 }
 
-function endCall() {
-  if (window._jitsiApi) {
-    try { window._jitsiApi.dispose(); } catch (e) {}
-    window._jitsiApi = null;
+function subscribeConfessions() {
+  if (confUnsub) { confUnsub(); confUnsub = null; }
+  confUnsub = onSnapshot(
+    query(collection(db, "confessions"), limit(80)),
+    snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.at || 0) - (a.at || 0));
+      S.confessions = list;
+      renderConfessions();
+    },
+    err => { console.error(err); toast("Could not load confessions."); }
+  );
+}
+
+function updateConfPills() {
+  const items = S.confessions || [];
+  const lastSeen = Number(localStorage.getItem("lockerConfSeen") || 0);
+  const newest = items.reduce((m, c) => Math.max(m, c.at || 0), 0);
+  const nNew = items.filter(c => (c.at || 0) > lastSeen).length;
+  if ($("confNewPill")) $("confNewPill").textContent = nNew + " New";
+  // Online: users with lastSeen in last 5 min among known users
+  const now = Date.now();
+  let online = 0;
+  Object.values(S.users || {}).forEach(u => {
+    if (u && u.lastSeen && (now - u.lastSeen) < 5 * 60 * 1000) online++;
+  });
+  // Always count yourself if logged in
+  if (S.user && online === 0) online = 1;
+  if ($("confOnlinePill")) $("confOnlinePill").textContent = online + " Online";
+  // Mark seen when viewing
+  if (S.tab === "confessions" && newest) {
+    localStorage.setItem("lockerConfSeen", String(newest));
   }
-  const box = $("jitsiContainer");
-  if (box) box.textContent = "";
-  $("callModal").classList.add("hidden");
 }
 
-if ($("callAudio")) $("callAudio").onclick = () => startCall(false);
-if ($("callVideo")) $("callVideo").onclick = () => startCall(true);
-if ($("callClose")) $("callClose").onclick = endCall;
+function renderConfessions() {
+  const box = $("confList");
+  if (!box) return;
+  box.textContent = "";
+  const items = S.confessions || [];
+  updateConfPills();
+  if (!items.length) {
+    box.append(el("p", "note", "No confessions yet. Be the first — keep it kind."));
+    return;
+  }
+  items.forEach(c => {
+    const card = el("div", "conf-card");
+    const meta = el("div", "conf-meta");
+    const grade = (c.grade || "").trim();
+    const gradeHtml = grade ? (' <span class="grade-tag">' + grade + '</span>') : "";
+    meta.innerHTML = '<span class="anon">🌙 Anonymous</span>' + gradeHtml + ' · ' + when(c.at);
+    card.append(meta);
+    card.append(el("p", "", c.text || ""));
+    const reacts = el("div", "conf-reacts");
+    const hearts = (c.hearts && typeof c.hearts === "object") ? Object.keys(c.hearts).length : 0;
+    const loved = c.hearts && c.hearts[S.user.uid];
+    const heartBtn = el("button", loved ? "loved" : "", "♥ " + hearts);
+    heartBtn.onclick = async () => {
+      try {
+        const ref = doc(db, "confessions", c.id);
+        if (loved) await updateDoc(ref, { ["hearts." + S.user.uid]: deleteField() });
+        else await updateDoc(ref, { ["hearts." + S.user.uid]: true });
+      } catch (e) { toast("Could not react."); }
+    };
+    reacts.append(heartBtn);
+    if (S.mod || (c.author === S.user.uid)) {
+      const del = el("button", "", "Delete");
+      del.onclick = async () => {
+        if (!await showConfirm("Delete this confession?")) return;
+        deleteDoc(doc(db, "confessions", c.id)).catch(() => toast("Could not delete."));
+      };
+      reacts.append(del);
+    }
+    card.append(reacts);
+    box.append(card);
+  });
+}
+
+if ($("confPost")) $("confPost").onclick = async () => {
+  const text = ($("confInput") && $("confInput").value || "").trim();
+  if (!text) return;
+  if (!(await assertNotMuted())) return;
+  try {
+    const grade = (S.profile && S.profile.grade) || "";
+    await addDoc(collection(db, "confessions"), {
+      text: text.slice(0, 500),
+      author: S.user.uid,
+      grade: grade.slice(0, 20),
+      hearts: {},
+      at: Date.now()
+    });
+    $("confInput").value = "";
+    toast("Posted anonymously.");
+  } catch (e) {
+    console.error(e);
+    toast("Could not post confession.");
+  }
+};
+if ($("openConfessions")) $("openConfessions").onclick = () => openConfessions();
 
 
 if ($("openMessages")) $("openMessages").onclick = () => { go("dms"); if (mobile()) appEl.classList.remove("open"); };
