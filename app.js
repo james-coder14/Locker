@@ -1484,22 +1484,25 @@ function renderMsgs() {
     wrap.append(el("div", "bmeta", when(m.createdAt) + (m.editedAt ? " · edited" : "")));
 
     const act = el("div", "row-act");
-    const rb = el("button", "react-btn", "😊");
-    rb.title = "React";
-    rb.onclick = () => { DM.reactOpen = DM.reactOpen === m.id ? null : m.id; DM.menuOpen = null; renderMsgs(); };
-    const mb = el("button", "react-btn", "⋯");
+    const mb = el("button", "react-btn quiet-act", "⋯");
     mb.title = "More";
-    mb.onclick = () => { DM.menuOpen = DM.menuOpen === m.id ? null : m.id; DM.reactOpen = null; renderMsgs(); };
-    act.append(rb, mb);
+    mb.onclick = () => {
+      DM.menuOpen = DM.menuOpen === m.id ? null : m.id;
+      DM.reactOpen = null;
+      renderMsgs();
+    };
+    act.append(mb);
     wrap.append(act);
 
-    if (DM.reactOpen === m.id) {
-      const bar = el("div", "react-bar");
-      REACTS.forEach(e => { const x = el("button", "", e); x.onclick = () => toggleReact(m, e); bar.append(x); });
-      wrap.append(bar);
-    }
     if (DM.menuOpen === m.id) {
       const menu = el("div", "menu-drop");
+      const reactBtn = el("button", "", "React");
+      reactBtn.onclick = () => {
+        DM.menuOpen = null;
+        DM.reactOpen = m.id;
+        renderMsgs();
+      };
+      menu.append(reactBtn);
       if (isMe && m.type === "text") {
         const eb = el("button", "", "Edit message");
         eb.onclick = () => { DM.menuOpen = null; editMsg(m); };
@@ -1510,8 +1513,12 @@ function renderMsgs() {
         pb.onclick = () => { DM.menuOpen = null; reportDM(m); };
         menu.append(pb);
       }
-      if (!menu.children.length) menu.append(el("span", "muted small", "No options here"));
       wrap.append(menu);
+    }
+    if (DM.reactOpen === m.id) {
+      const bar = el("div", "react-bar");
+      REACTS.forEach(e => { const x = el("button", "", e); x.onclick = () => toggleReact(m, e); bar.append(x); });
+      wrap.append(bar);
     }
     box.append(wrap);
 
@@ -1760,17 +1767,17 @@ async function loadWarnings(uid) {
 async function sendAnonNote(toUid) {
   if (!S.user || toUid === S.user.uid) return;
   if (!(await assertNotMuted())) return;
-  const text = await showPrompt("Send an anonymous note (be kind — mods can still review reports):");
+  const text = await showPrompt("Send a private note (they will see it was from you):");
   if (!text || !text.trim()) return;
   try {
     await addDoc(collection(db, "anonNotes"), {
       to: toUid,
-      from: S.user.uid, // stored for mod safety, never shown to recipient
+      from: S.user.uid,
       text: text.trim().slice(0, 280),
       at: Date.now(),
       read: false
     });
-    toast("Note sent anonymously.");
+    toast("Note sent.");
   } catch (e) {
     console.error(e);
     toast("Could not send note.");
@@ -1789,13 +1796,27 @@ async function openMyNotes() {
   const notes = await loadMyNotes();
   const view = $("profileView");
   view.textContent = "";
-  view.append(el("h2", "", "Anonymous notes"));
-  view.append(el("p", "muted small", "Only you see these. Be careful who you open notes from."));
+  view.append(el("h2", "", "Notes inbox"));
+  view.append(el("p", "muted small", "Private notes sent to you. You can see who wrote each one."));
   if (!notes.length) view.append(el("p", "note", "No notes yet."));
+  // Resolve sender names
+  const fromIds = [...new Set(notes.map(n => n.from).filter(Boolean))];
+  await ensureUsers(fromIds);
   notes.forEach(n => {
     const card = el("div", "profile-section");
     card.append(el("p", "", n.text));
-    card.append(el("span", "muted small", when(n.at) + " · anonymous"));
+    const sender = n.from && S.users[n.from]
+      ? ((S.users[n.from].name || "Someone") + (S.users[n.from].username ? " (@" + S.users[n.from].username + ")" : ""))
+      : "Unknown sender";
+    const meta = el("span", "muted small", when(n.at) + " · from " + sender);
+    card.append(meta);
+    if (n.from) {
+      const open = el("button", "link", "View profile");
+      open.style.display = "block";
+      open.style.marginTop = "6px";
+      open.onclick = () => openProfile(n.from);
+      card.append(open);
+    }
     view.append(card);
     if (!n.read) updateDoc(doc(db, "anonNotes", n.id), { read: true }).catch(() => {});
   });
@@ -1912,11 +1933,11 @@ async function openProfile(uid) {
     const msgBtn = el("button", "btn wide", "Message");
     msgBtn.onclick = () => startDM(uid, u.name || "Student");
     actions.append(msgBtn);
-    const noteBtn = el("button", "btn wide", "Send anonymous note");
+    const noteBtn = el("button", "btn wide", "Send a note");
     noteBtn.onclick = () => sendAnonNote(uid);
     actions.append(noteBtn);
   } else {
-    const myNotes = el("button", "btn wide", "My anonymous notes");
+    const myNotes = el("button", "btn wide", "Notes inbox");
     myNotes.onclick = () => openMyNotes();
     actions.append(myNotes);
   }
@@ -2054,7 +2075,7 @@ function renderConfessions() {
     const meta = el("div", "conf-meta");
     const grade = (c.grade || "").trim();
     const gradeHtml = grade ? (' <span class="grade-tag">' + grade + '</span>') : "";
-    meta.innerHTML = '<span class="anon">🌙 Anonymous</span>' + gradeHtml + ' · ' + when(c.at);
+    meta.innerHTML = '<span class="anon">Anonymous</span>' + gradeHtml + ' · ' + when(c.at);
     card.append(meta);
     card.append(el("p", "", c.text || ""));
     const reacts = el("div", "conf-reacts");

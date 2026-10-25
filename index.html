@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#121212">
+<meta name="theme-color" content="#0a0a0a">
 <title>Locker</title>
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
 
@@ -117,7 +117,7 @@
 <div id="app" class="app hidden">
   <aside>
     <div class="school-brand" id="schoolBrand">
-      <div class="school-icon">🔔</div>
+      <div class="school-icon">L</div>
       <div>
         <b id="schoolName">Locker</b>
         <span class="muted small" id="schoolSub">Your school network</span>
@@ -128,7 +128,7 @@
       <div class="side-info"><b id="sideName">Student</b><span id="sideBio"></span></div>
       <button class="pencil-btn" id="viewMyProfile" title="View profile">✎</button>
     </div>
-    <button class="item" id="openConfessions">🔔 Confessions</button>
+    <button class="item" id="openConfessions">Confessions</button>
     <button class="item" id="openMessages">Messages</button>
     <button class="item" id="openSettings">Settings</button>
     <div class="label">CLASSROOMS</div>
@@ -170,7 +170,7 @@
       <section id="confessions" class="hidden">
         <div class="conf-header">
           <div class="conf-title-row">
-            <h2>🔔 Confessions</h2>
+            <h2>Confessions</h2>
           </div>
           <p class="muted small">Anonymous school feed. Be kind — mods can still remove abuse.</p>
           <div class="conf-pills" id="confPills">
@@ -253,7 +253,7 @@
   </div>
 </div>
 
-<script type="module" src="app.js?v=26"></script>
+<script type="module" src="app.js?v=28"></script>
 
 <div id="groupModal" class="modal hidden">
   <div class="modal-box">
@@ -274,7 +274,7 @@
   <div class="modal-box">
     <h2>Settings</h2>
     <button class="btn wide" id="settingsEditProfile">Edit profile</button>
-    <button class="btn wide" id="settingsNotes">Anonymous notes</button>
+    <button class="btn wide" id="settingsNotes">Notes inbox</button>
     <button class="btn wide" id="settingsPrivacy">Privacy & Terms</button>
     <button class="btn wide danger" id="settingsSignOut">Sign out</button>
     <button class="link" id="settingsClose">Close</button>
@@ -289,7 +289,7 @@
     <p><b>What we collect</b><br>Info you provide (name, username, bio, status, photos, email), classrooms you join, posts, comments, polls, messages, mates, anonymous notes metadata, and activity signals (e.g. last seen for online status).</p>
     <p><b>How it's used</b><br>To run Locker: profiles, feeds, messaging, invites, and safety (blocks, reports, mutes, mod tools).</p>
     <p><b>Who can see what</b><br>Classmates in shared classrooms can see posts and profile basics. <b>Mates lists are public on profiles.</b> Direct messages and group chats are only for participants. Mods can review reported content and, when needed, chats for safety.</p>
-    <p><b>Anonymous notes</b><br>Notes hide your name from the recipient. Mods may still access sender info to stop abuse. Don't use notes to harass anyone.</p>
+    <p><b>Notes</b><br>Private notes show your name to the person who receives them. Don't use notes to harass anyone. Mods can remove abusive content.</p>
     <p><b>Messages & groups</b><br>Don't share passwords, private addresses, or anything illegal. Group chats can be left or deleted by creators/mods.</p>
     <p><b>Moderation</b><br>Actions like mutes, warnings, and removals may appear from <b>The Locker Staff</b> (not individual names). Mods can mute, lock feeds, remove content, and delete harmful accounts.</p>
     <p><b>Your controls</b><br>Edit profile, block users, remove Mates, leave groups, delete your posts/comments, and sign out. Ask Staff if you need account help.</p>
