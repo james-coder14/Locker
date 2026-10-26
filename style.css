@@ -57,7 +57,7 @@ h2{margin:0 0 8px;font-size:18px;font-weight:700;letter-spacing:-.02em}
   border-radius:50%!important;display:block}
 .avatar.sm{width:28px;height:28px}
 .avatar.lg{width:48px;height:48px}
-.avatar.xl{width:80px;height:80px}
+.avatar.xl{width:52px;height:52px}
 .avatar.empty{background:var(--hover)}
 .avatar-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
 .fileinput{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
@@ -232,14 +232,14 @@ nav.tabs button.on{color:var(--ink);box-shadow:inset 0 2px 0 var(--ink)}
   z-index:80;max-width:88%;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
 
 .profile-hero{position:relative;margin:-4px -4px 12px;border-radius:var(--radius) var(--radius) 0 0;overflow:visible}
-.profile-cover{height:100px;background:linear-gradient(135deg,#222,#151515);background-size:cover;
+.profile-cover{height:64px;background:linear-gradient(135deg,#222,#151515);background-size:cover;
   background-position:center;border-radius:var(--radius) var(--radius) 0 0}
-.profile-av-wrap{position:absolute;left:12px;bottom:-28px;border:3px solid var(--panel);
-  border-radius:50%;background:var(--panel);overflow:hidden;width:72px;height:72px}
+.profile-av-wrap{position:absolute;left:12px;bottom:-22px;border:2px solid var(--panel);
+  border-radius:50%;background:var(--panel);overflow:hidden;width:52px;height:52px}
 .profile-av-wrap .avatar{width:100%;height:100%}
-.profile-head{padding:36px 6px 8px}
-.profile-head h2{margin:0 0 2px;font-size:18px}
-.profile-section{margin:10px 0;padding:14px;background:var(--raised);border-radius:var(--radius);text-align:left}
+.profile-head{padding:28px 6px 6px}
+.profile-head h2{margin:0 0 2px;font-size:16px;font-weight:600}
+.profile-section{margin:8px 0;padding:10px 12px;background:var(--raised);border-radius:12px;text-align:left}
 .profile-section h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
 .mate-chips{display:flex;flex-wrap:wrap;gap:6px}
 .mate-chip{background:var(--panel);border:1px solid var(--line);color:var(--ink);padding:6px 12px;
@@ -273,3 +273,67 @@ nav.tabs button.on{color:var(--ink);box-shadow:inset 0 2px 0 var(--ink)}
   header{padding-left:12px;padding-right:12px}
   nav.tabs button{font-size:10px;padding:10px 1px}
 }
+
+/* Compact profiles */
+#profileModal .modal-box{max-width:340px}
+#profileModal .btn.wide{margin:0 0 8px;padding:10px 14px;min-height:40px;font-size:13px}
+#profileModal .profile-section p{font-size:13px;margin:0;line-height:1.4}
+#profileModal .mate-chip{font-size:11px;padding:4px 10px}
+
+.settings-box{max-height:85vh;overflow-y:auto}
+.settings-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);margin:14px 0 6px;padding:0}
+.settings-box .btn.wide{margin:0 0 8px;text-align:left;background:var(--raised);color:var(--ink);
+  border:1px solid var(--line);font-weight:500;font-size:14px}
+.settings-box .btn.wide.danger{background:#2a1515;color:#f0a0a0;border-color:#3a2020}
+.settings-box .btn.wide:active{opacity:.85}
+#blockedList .row{cursor:default}
+#blockedList .btn.small{margin-left:auto}
+
+/* Confession replies */
+.conf-thread{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.conf-reply{padding:8px 0 8px 12px;border-left:2px solid var(--line);margin:0 0 8px;position:relative}
+.conf-reply-meta{font-size:11px;color:var(--muted);margin-bottom:4px}
+.conf-reply p{margin:0;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.conf-reply-del{background:none;border:none;color:var(--faint);font-size:11px;cursor:pointer;
+  padding:0;min-height:0;margin-top:4px}
+.conf-reply-del:hover{color:#e74c3c}
+.conf-reply-box{display:flex;gap:8px;margin-top:10px;align-items:center}
+.conf-reply-box .field{flex:1;margin:0;padding:10px 12px;font-size:13px;border-radius:var(--radius-pill)}
+.conf-reply-box .btn{flex-shrink:0;border-radius:var(--radius-pill)}
+
+/* Bell-style schoolwide channels */
+.channel-tabs{display:flex;gap:6px;margin:12px 0 4px;flex-wrap:wrap}
+.channel-tab{background:var(--raised);border:1px solid var(--line);color:var(--muted);
+  border-radius:var(--radius-pill);padding:6px 14px;font-size:12px;font-weight:600;
+  cursor:pointer;min-height:0}
+.channel-tab.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+aside .channel-item.on{background:var(--raised)}
+
+/* Bell paste — schoolwide feel */
+aside .label{padding-top:20px}
+.pill b{font-weight:700;margin-right:3px}
+.pill-new{font-size:12px;padding:5px 12px}
+.pill-online{font-size:12px;padding:5px 12px}
+.conf-card{transition:background .12s}
+.conf-card:hover{background:#1e1e1e}
+.conf-reacts button{font-size:13px;gap:5px}
+.school-brand{padding-bottom:8px;border-bottom:1px solid transparent}
+
+/* Closer to Bell confessions surface */
+#confessions .conf-header h2{font-size:22px;font-weight:700;letter-spacing:-.03em}
+#confessions .conf-header .muted{margin-bottom:2px}
+.conf-pills{gap:10px;margin:14px 0 8px}
+.pill-new,.pill-online{font-size:13px;padding:6px 14px;font-weight:600}
+.conf-compose{margin-top:8px;margin-bottom:20px}
+.conf-card{padding:16px 16px 14px;margin:0 0 12px;border-radius:16px}
+.conf-card .conf-meta{margin-bottom:10px;font-size:12px}
+.conf-card p{font-size:15px;line-height:1.5;margin:0 0 12px}
+.conf-reacts{gap:16px}
+.conf-reacts button{font-size:13px;color:var(--muted)}
+.conf-reacts button.loved{color:var(--heart)}
+nav.tabs.hidden{display:none!important}
+/* Sidebar denser like Bell */
+aside .item{padding:10px 16px;font-size:14px}
+aside .label{font-size:10px;letter-spacing:.12em}
+.profile-card{margin-bottom:8px}

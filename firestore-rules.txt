@@ -347,7 +347,7 @@ service cloud.firestore {
     match /confessions/{id} {
       allow read: if signedIn();
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['text', 'author', 'grade', 'hearts', 'at'])
+        && request.resource.data.keys().hasOnly(['text', 'author', 'grade', 'channel', 'hearts', 'fires', 'lols', 'replies', 'at'])
         && request.resource.data.author == request.auth.uid
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0
@@ -355,7 +355,7 @@ service cloud.firestore {
         && request.resource.data.hearts == {}
         && request.resource.data.at is int;
       allow update: if signedIn()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hearts']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hearts', 'fires', 'lols', 'replies']);
       allow delete: if signedIn() && (resource.data.author == request.auth.uid || isMod());
     }
   }

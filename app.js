@@ -90,7 +90,7 @@ function convIdFor(a, b) { return [a, b].sort().join("_"); }
 
 /* ---------- State ---------- */
 const LOCKER_STAFF = "The Locker Staff";
-const S = { user: null, profile: null, mod: false, classes: [], cls: null, posts: [], likes: [], events: [], reports: [], members: [], comments: {}, polls: [], users: {}, clsUnsubs: [], tab: "feed", onboardMode: "new", photoData: "", pendingClassId: null, myRole: null };
+const S = { user: null, profile: null, mod: false, classes: [], cls: null, posts: [], likes: [], events: [], reports: [], members: [], comments: {}, polls: [], users: {}, clsUnsubs: [], tab: "feed", onboardMode: "new", photoData: "", pendingClassId: null, myRole: null, confChannel: "confessions", confessions: [] };
 const DM = { convs: [], convUnsub: null, msgs: [], msgUnsub: null, cur: null, reactOpen: null, menuOpen: null, mates: [], matesUnsub: null };
 const EMOJIS = ["😀", "😂", "❤️", "👍", "🔥", "😮", "😢", "🙏", "🎉", "😎", "🤔", "👏"];
 const REACTS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -181,7 +181,7 @@ $("backBtn").onclick = () => signOut(auth);
 if ($("sideSignOut")) $("sideSignOut").onclick = () => signOut(auth);
 
 function closeAllModals() {
-  ["settingsModal", "privacyModal", "profileModal", "mateModal", "groupModal", "appDialog"].forEach(id => {
+  ["settingsModal", "privacyModal", "trustModal", "blockedModal", "profileModal", "mateModal", "groupModal", "appDialog"].forEach(id => {
     const n = $(id);
     if (n) n.classList.add("hidden");
   });
@@ -230,6 +230,7 @@ function startOnboarding(mode) {
   }
   if ($("pTheme")) $("pTheme").value = p.theme || "default";
   $("pBio").value = p.bio || "";
+  if ($("pSchool")) $("pSchool").value = p.school || "Locker";
   if ($("pStatus")) $("pStatus").value = p.status || "";
   $("pEmail").value = p.contactEmail || (S.user && S.user.email) || "";
   stepTo(1);
@@ -290,8 +291,9 @@ async function saveProfile() {
   }
   const theme = ($("pTheme") && $("pTheme").value) || "default";
   const status = ($("pStatus") && $("pStatus").value.trim().slice(0, 40)) || "";
+  const school = ($("pSchool") && $("pSchool").value.trim().slice(0, 40)) || (S.profile && S.profile.school) || "Locker";
   const data = {
-    name, bio, contactEmail, username, role, theme, status,
+    name, bio, contactEmail, username, role, theme, status, school,
     grade: ($("pGrade") && $("pGrade").value) || (S.profile && S.profile.grade) || "",
     photo: S.photoData || (S.profile && S.profile.photo) || "",
     cover: S.coverData || (S.profile && S.profile.cover) || "",
@@ -415,8 +417,12 @@ async function enterApp(selectId) {
   subscribeMates();
   try { await loadClasses(); } catch (e) { S.classes = []; toast("Could not load your classrooms."); }
   renderSideClasses();
-  const pick = S.classes.find(c => c.classId === selectId) || S.classes[0] || null;
-  selectClass(pick);
+  if (selectId) {
+    const pick = S.classes.find(c => c.classId === selectId) || null;
+    if (pick) { selectClass(pick); return; }
+  }
+  // Bell-style home: schoolwide Confessions first
+  openConfessions("confessions");
 }
 
 async function loadClasses() {
@@ -436,10 +442,12 @@ function updateSchoolBrand() {
   const nameEl = $("schoolName");
   const subEl = $("schoolSub");
   if (!nameEl) return;
-  // Prefer first classroom name as "school" flavor, else Locker
-  const cls = (S.classes && S.classes[0] && S.classes[0].name) || null;
-  nameEl.textContent = "Locker";
-  if (subEl) subEl.textContent = cls ? ("Active in " + cls) : "Your school network";
+  const school = (S.profile && S.profile.school) || "Locker";
+  nameEl.textContent = school;
+  if (subEl) {
+    const g = (S.profile && S.profile.grade) ? S.profile.grade : "";
+    subEl.textContent = g ? (g + " · School network") : "School network";
+  }
 }
 
 function renderProfileCard() {
@@ -457,11 +465,11 @@ function renderProfileCard() {
 }
 
 function isOnline(u) {
-  if (!u || !u.lastSeen) return false;
+  if (!u || !u.lastSeen || u.hideOnline) return false;
   return (Date.now() - (u.lastSeen || 0)) < 3 * 60 * 1000; // 3 min
 }
 function lastSeenText(u) {
-  if (!u || !u.lastSeen) return "";
+  if (!u || !u.lastSeen || u.hideOnline) return "";
   if (isOnline(u)) return "Online";
   const mins = Math.floor((Date.now() - u.lastSeen) / 60000);
   if (mins < 60) return "Active " + mins + "m ago";
@@ -601,11 +609,25 @@ function renderTabs() {
 function go(tab) {
   S.tab = tab;
   if ($("openConfessions")) $("openConfessions").classList.toggle("on", tab === "confessions");
-
-  ["feed", "members", "calendar", "dms", "mod"].forEach(k => $(k).classList.toggle("hidden", k !== tab));
+  ["feed", "members", "calendar", "dms", "mod", "confessions"].forEach(k => {
+    const n = $(k);
+    if (n) n.classList.toggle("hidden", k !== tab);
+  });
+  // Bottom classroom tabs only when inside a classroom
+  const tabsEl = document.querySelector("nav.tabs");
+  if (tabsEl) {
+    const schoolwide = (tab === "confessions" || tab === "dms");
+    tabsEl.classList.toggle("hidden", schoolwide && !S.cls);
+    if (tab === "confessions") tabsEl.classList.add("hidden");
+  }
+  if (tab === "confessions") {
+    if ($("classCode")) $("classCode").textContent = "";
+    renderTabs();
+    return;
+  }
   const titles = { feed: S.cls ? S.cls.name : "No classroom yet", members: "Classmates", calendar: "Calendar", dms: "Messages", mod: "Moderation" };
-  if (tab !== "feed" && tab !== "members" && tab !== "calendar" && tab !== "dms" && tab !== "mod") return;
-  $("title").textContent = titles[tab];
+  $("title").textContent = titles[tab] || "Locker";
+  if (tab === "feed" && S.cls && $("classCode")) $("classCode").textContent = S.cls.code ? ("Code " + S.cls.code) : "";
   renderTabs();
 }
 
@@ -1319,6 +1341,11 @@ async function startDM(otherUid, otherName) {
 }
 function closeChatSub() { if (DM.msgUnsub) DM.msgUnsub(); DM.msgUnsub = null; }
 function openChat(id, otherUid, otherName, isGroup) {
+  if (!isGroup && otherUid && !canMessageUser(otherUid)) {
+    toast("They only accept messages from Mates.");
+    return;
+  }
+
   DM.cur = { id, other: otherUid, name: otherName, isGroup: !!isGroup };
   DM.reactOpen = null; DM.menuOpen = null;
   $("convList").classList.add("hidden");
@@ -1523,7 +1550,11 @@ function renderMsgs() {
     box.append(wrap);
 
     if (isMe && m === lastMine && other) {
-      const status = (m.readBy && m.readBy[other]) ? "Read" : ((m.deliveredTo && m.deliveredTo[other]) ? "Delivered" : "Sent");
+      let status = "Sent";
+      if (m.deliveredTo && m.deliveredTo[other]) status = "Delivered";
+      if (m.readBy && m.readBy[other]) status = "Read";
+      // If I turned receipts off, don't show Read for others' perspective is separate; still show for me based on their data
+
       box.append(el("div", "receipt", status));
     } else if (isMe && m === lastMine && DM.cur && DM.cur.isGroup) {
       box.append(el("div", "receipt", "Sent"));
@@ -1540,7 +1571,7 @@ async function markReceipts() {
     if (m.from === me) continue;
     const upd = {};
     if (!(m.deliveredTo && m.deliveredTo[me])) upd["deliveredTo." + me] = Date.now();
-    if (visible && !(m.readBy && m.readBy[me])) upd["readBy." + me] = Date.now();
+    if (visible && !(m.readBy && m.readBy[me]) && !(S.profile && S.profile.readReceipts === false)) upd["readBy." + me] = Date.now();
     if (Object.keys(upd).length) updateDoc(doc(db, "conversations", DM.cur.id, "messages", m.id), upd).catch(() => {});
   }
 }
@@ -1663,6 +1694,26 @@ async function isUserMuted(uid) {
   } catch (e) { return false; }
 }
 
+
+function canMessageUser(otherUid) {
+  if (!otherUid || otherUid === S.user.uid) return true;
+  if (S.mod) return true;
+  const other = S.users[otherUid];
+  // If they set matesOnly, you must be mates
+  if (other && other.matesOnly) {
+    const ok = (DM.mates || []).some(m => m.status === "accepted" && (m.a === otherUid || m.b === otherUid || m.from === otherUid || m.to === otherUid));
+    // also check pair
+    const mates = DM.mates || [];
+    const isMate = mates.some(m => {
+      if (m.status && m.status !== "accepted") return false;
+      const ids = [m.a, m.b, m.from, m.to, m.uid, m.other].filter(Boolean);
+      return ids.includes(otherUid) && ids.includes(S.user.uid);
+    });
+    if (!isMate) return false;
+  }
+  return true;
+}
+
 async function assertNotMuted() {
   if (S.mod) return true;
   const m = await isUserMuted(S.user.uid);
@@ -1767,6 +1818,16 @@ async function loadWarnings(uid) {
 async function sendAnonNote(toUid) {
   if (!S.user || toUid === S.user.uid) return;
   if (!(await assertNotMuted())) return;
+  const other = S.users[toUid];
+  if (other && other.notesOnlyMates && !S.mod) {
+    const mates = DM.mates || [];
+    const isMate = mates.some(m => {
+      if (m.status && m.status !== "accepted") return false;
+      const ids = [m.a, m.b, m.from, m.to, m.uid, m.other].filter(Boolean);
+      return ids.includes(toUid) && ids.includes(S.user.uid);
+    });
+    if (!isMate) return toast("They only accept notes from Mates.");
+  }
   const text = await showPrompt("Send a private note (they will see it was from you):");
   if (!text || !text.trim()) return;
   try {
@@ -2008,19 +2069,43 @@ $("scrim").onclick = () => appEl.classList.remove("open");
 
 
 /* ---------- Confessions (anonymous school feed) ---------- */
-let confUnsub = null;
-function openConfessions() {
-  S.tab = "confessions";
-  ["feed","members","calendar","dms","mod","confessions"].forEach(id => {
-    const n = $(id);
-    if (n) n.classList.toggle("hidden", id !== "confessions");
+
+const CONF_CHANNELS = {
+  confessions: { title: "Confessions", sub: "Anonymous thoughts from your school. Be kind." },
+  overheard: { title: "Overheard", sub: "Things you heard in the hallway — keep it fun, not mean." },
+  memes: { title: "Memes", sub: "School meme dump. Text jokes welcome." }
+};
+
+function setConfChannel(ch) {
+  if (!CONF_CHANNELS[ch]) ch = "confessions";
+  S.confChannel = ch;
+  const meta = CONF_CHANNELS[ch];
+  if ($("confTitle")) $("confTitle").textContent = meta.title;
+  if ($("confSub")) $("confSub").textContent = meta.sub;
+  if ($("confInput")) {
+    $("confInput").placeholder = ch === "memes" ? "Drop a meme or joke…" :
+      ch === "overheard" ? "What did you overhear?" : "Say something anonymously…";
+  }
+  document.querySelectorAll(".channel-tab").forEach(b => {
+    b.classList.toggle("on", b.dataset.channel === ch);
   });
-  $("title").textContent = "Confessions";
-  $("classCode").textContent = "";
-  // highlight sidebar
-  document.querySelectorAll("aside .item").forEach(el => el.classList.remove("on"));
-  if ($("openConfessions")) $("openConfessions").classList.add("on");
-  renderTabs();
+  document.querySelectorAll("aside .channel-item").forEach(b => {
+    b.classList.toggle("on", b.dataset.channel === ch);
+  });
+  if ($("title")) $("title").textContent = meta.title;
+  renderConfessions();
+}
+
+
+let confUnsub = null;
+function openConfessions(ch) {
+  go("confessions");
+  setTimeout(() => { try { localStorage.setItem("lockerConfSeen", String(Date.now())); updateConfPills(); } catch(e){} }, 1500);
+  document.querySelectorAll("aside .item").forEach(el => {
+    if (!el.classList.contains("channel-item")) el.classList.remove("on");
+  });
+  setConfChannel(ch || S.confChannel || "confessions");
+  document.querySelectorAll("nav.tabs button").forEach(b => b.classList.remove("on"));
   subscribeConfessions();
   if (mobile()) appEl.classList.remove("open");
 }
@@ -2041,33 +2126,33 @@ function subscribeConfessions() {
 
 function updateConfPills() {
   const items = S.confessions || [];
+  const ch = S.confChannel || "confessions";
+  const filtered = items.filter(c => (c.channel || "confessions") === ch);
   const lastSeen = Number(localStorage.getItem("lockerConfSeen") || 0);
-  const newest = items.reduce((m, c) => Math.max(m, c.at || 0), 0);
-  const nNew = items.filter(c => (c.at || 0) > lastSeen).length;
-  if ($("confNewPill")) $("confNewPill").textContent = nNew + " New";
-  // Online: users with lastSeen in last 5 min among known users
-  const now = Date.now();
+  const nNew = filtered.filter(c => (c.at || 0) > lastSeen).length;
   let online = 0;
+  const now = Date.now();
   Object.values(S.users || {}).forEach(u => {
-    if (u && u.lastSeen && (now - u.lastSeen) < 5 * 60 * 1000) online++;
+    if (u && !u.hideOnline && u.lastSeen && (now - u.lastSeen) < 5 * 60 * 1000) online++;
   });
-  // Always count yourself if logged in
-  if (S.user && online === 0) online = 1;
-  if ($("confOnlinePill")) $("confOnlinePill").textContent = online + " Online";
-  // Mark seen when viewing
-  if (S.tab === "confessions" && newest) {
-    localStorage.setItem("lockerConfSeen", String(newest));
-  }
+  if ($("confNewN")) $("confNewN").textContent = String(nNew);
+  else if ($("confNewPill")) $("confNewPill").textContent = nNew + " New";
+  if ($("confOnlineN")) $("confOnlineN").textContent = String(online);
+  else if ($("confOnlinePill")) $("confOnlinePill").textContent = online + " Online";
 }
 
 function renderConfessions() {
   const box = $("confList");
   if (!box) return;
   box.textContent = "";
-  const items = S.confessions || [];
+  const ch = S.confChannel || "confessions";
+  const items = (S.confessions || []).filter(c => (c.channel || "confessions") === ch);
   updateConfPills();
   if (!items.length) {
-    box.append(el("p", "note", "No confessions yet. Be the first — keep it kind."));
+    const emptyMsg = ch === "memes" ? "No memes yet. Post the first one." :
+      ch === "overheard" ? "Nothing overheard yet. Spill something funny." :
+      "No confessions yet. Be the first — keep it kind.";
+    box.append(el("p", "note", emptyMsg));
     return;
   }
   items.forEach(c => {
@@ -2075,9 +2160,13 @@ function renderConfessions() {
     const meta = el("div", "conf-meta");
     const grade = (c.grade || "").trim();
     const gradeHtml = grade ? (' <span class="grade-tag">' + grade + '</span>') : "";
-    meta.innerHTML = '<span class="anon">Anonymous</span>' + gradeHtml + ' · ' + when(c.at);
+    const chTag = (c.channel && c.channel !== "confessions")
+      ? (' <span class="grade-tag">' + (c.channel === "overheard" ? "Overheard" : c.channel === "memes" ? "Memes" : c.channel) + '</span>')
+      : "";
+    meta.innerHTML = '<span class="anon">Anonymous</span>' + gradeHtml + chTag + ' · ' + when(c.at);
     card.append(meta);
     card.append(el("p", "", c.text || ""));
+
     const reacts = el("div", "conf-reacts");
     const hearts = (c.hearts && typeof c.hearts === "object") ? Object.keys(c.hearts).length : 0;
     const loved = c.hearts && c.hearts[S.user.uid];
@@ -2090,6 +2179,51 @@ function renderConfessions() {
       } catch (e) { toast("Could not react."); }
     };
     reacts.append(heartBtn);
+
+    const fireN = (c.fires && typeof c.fires === "object") ? Object.keys(c.fires).length : 0;
+    const fireBtn = el("button", (c.fires && c.fires[S.user.uid]) ? "loved" : "", "🔥 " + fireN);
+    fireBtn.onclick = async () => {
+      try {
+        const ref = doc(db, "confessions", c.id);
+        if (c.fires && c.fires[S.user.uid]) await updateDoc(ref, { ["fires." + S.user.uid]: deleteField() });
+        else await updateDoc(ref, { ["fires." + S.user.uid]: true });
+      } catch (e) { toast("Could not react."); }
+    };
+    reacts.append(fireBtn);
+
+    const lolN = (c.lols && typeof c.lols === "object") ? Object.keys(c.lols).length : 0;
+    const lolBtn = el("button", (c.lols && c.lols[S.user.uid]) ? "loved" : "", "😂 " + lolN);
+    lolBtn.onclick = async () => {
+      try {
+        const ref = doc(db, "confessions", c.id);
+        if (c.lols && c.lols[S.user.uid]) await updateDoc(ref, { ["lols." + S.user.uid]: deleteField() });
+        else await updateDoc(ref, { ["lols." + S.user.uid]: true });
+      } catch (e) { toast("Could not react."); }
+    };
+    reacts.append(lolBtn);
+
+    const replies = Array.isArray(c.replies) ? c.replies : [];
+    const replyBtn = el("button", "", "💬 " + replies.length);
+    replyBtn.onclick = () => {
+      const box = card.querySelector(".conf-reply-box");
+      if (box) box.classList.toggle("hidden");
+    };
+    reacts.append(replyBtn);
+
+    const reportBtn = el("button", "", "Report");
+    reportBtn.onclick = async () => {
+      const reason = await showPrompt("Why report this confession?");
+      if (!reason) return;
+      try {
+        await addDoc(collection(db, "reports"), {
+          type: "confession", targetId: c.id, classId: S.cls ? S.cls.classId : null,
+          by: S.user.uid, reason: reason.slice(0, 200), at: Date.now(), text: (c.text || "").slice(0, 120)
+        });
+        toast("Report sent to Locker staff.");
+      } catch (e) { toast("Could not report."); }
+    };
+    reacts.append(reportBtn);
+
     if (S.mod || (c.author === S.user.uid)) {
       const del = el("button", "", "Delete");
       del.onclick = async () => {
@@ -2099,6 +2233,73 @@ function renderConfessions() {
       reacts.append(del);
     }
     card.append(reacts);
+
+    // Replies thread
+    if (replies.length) {
+      const thread = el("div", "conf-thread");
+      // show newest last
+      const sorted = replies.slice().sort((a, b) => (a.at || 0) - (b.at || 0));
+      sorted.forEach((r, idx) => {
+        const row = el("div", "conf-reply");
+        const rg = (r.grade || "").trim();
+        const who = "Anonymous" + (rg ? " · " + rg : "");
+        row.append(el("div", "conf-reply-meta", who + " · " + when(r.at)));
+        row.append(el("p", "", r.text || ""));
+        if (S.mod || (r.author === S.user.uid) || (c.author === S.user.uid)) {
+          const rd = el("button", "conf-reply-del", "Delete");
+          rd.onclick = async () => {
+            if (!await showConfirm("Delete this reply?")) return;
+            try {
+              const next = (c.replies || []).filter((_, i) => {
+                // match by at+text+author
+                return !(r.at === _.at && r.text === _.text && r.author === _.author);
+              });
+              // better: filter out this one by index in original after sort is messy — use filter
+              const filtered = (c.replies || []).filter(x =>
+                !(x.at === r.at && x.text === r.text && x.author === r.author)
+              );
+              await updateDoc(doc(db, "confessions", c.id), { replies: filtered });
+            } catch (e) { toast("Could not delete reply."); }
+          };
+          row.append(rd);
+        }
+        thread.append(row);
+      });
+      card.append(thread);
+    }
+
+    // Reply composer
+    const replyBox = el("div", "conf-reply-box" + (replies.length ? "" : " hidden"));
+    const inp = el("input", "field");
+    inp.placeholder = "Reply anonymously…";
+    inp.maxLength = 280;
+    const send = el("button", "btn small", "Reply");
+    send.onclick = async () => {
+      const text = (inp.value || "").trim();
+      if (!text) return;
+      if (!(await assertNotMuted())) return;
+      try {
+        const entry = {
+          text: text.slice(0, 280),
+          author: S.user.uid,
+          grade: ((S.profile && S.profile.grade) || "").slice(0, 20),
+          at: Date.now()
+        };
+        const cur = Array.isArray(c.replies) ? c.replies.slice() : [];
+        if (cur.length >= 50) return toast("This thread is full (50 replies).");
+        cur.push(entry);
+        await updateDoc(doc(db, "confessions", c.id), { replies: cur });
+        inp.value = "";
+        toast("Reply posted.");
+      } catch (e) {
+        console.error(e);
+        toast("Could not reply — update rules if needed.");
+      }
+    };
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") send.click(); });
+    replyBox.append(inp, send);
+    card.append(replyBox);
+
     box.append(card);
   });
 }
@@ -2113,7 +2314,11 @@ if ($("confPost")) $("confPost").onclick = async () => {
       text: text.slice(0, 500),
       author: S.user.uid,
       grade: grade.slice(0, 20),
+      channel: S.confChannel || "confessions",
       hearts: {},
+      fires: {},
+      lols: {},
+      replies: [],
       at: Date.now()
     });
     $("confInput").value = "";
@@ -2123,16 +2328,36 @@ if ($("confPost")) $("confPost").onclick = async () => {
     toast("Could not post confession.");
   }
 };
-if ($("openConfessions")) $("openConfessions").onclick = () => openConfessions();
+
+if ($("openConfessions")) $("openConfessions").onclick = () => openConfessions("confessions");
+if ($("openOverheard")) $("openOverheard").onclick = () => openConfessions("overheard");
+if ($("openMemes")) $("openMemes").onclick = () => openConfessions("memes");
+document.querySelectorAll(".channel-tab").forEach(b => {
+  b.onclick = () => setConfChannel(b.dataset.channel);
+});
+
 
 
 if ($("openMessages")) $("openMessages").onclick = () => { go("dms"); if (mobile()) appEl.classList.remove("open"); };
 
 /* ---------- Settings + profile entry ---------- */
+function refreshSettingsLabels() {
+  const p = S.profile || {};
+  if ($("settingsMatesOnly"))
+    $("settingsMatesOnly").textContent = p.matesOnly ? "Messages: Mates only ✓" : "Messages: Everyone";
+  if ($("settingsNotesOnly"))
+    $("settingsNotesOnly").textContent = p.notesOnlyMates ? "Notes: Mates only ✓" : "Notes: Everyone";
+  if ($("settingsHideOnline"))
+    $("settingsHideOnline").textContent = p.hideOnline ? "Online status: Hidden ✓" : "Online status: Visible";
+  if ($("settingsReceipts"))
+    $("settingsReceipts").textContent = p.readReceipts === false ? "Read receipts: Off" : "Read receipts: On ✓";
+}
+
 if ($("openSettings")) $("openSettings").onclick = () => {
   $("settingsModal").classList.remove("hidden");
-  if (mobile()) appEl.classList.remove("open");
+  refreshSettingsLabels();
 };
+
 if ($("settingsClose")) $("settingsClose").onclick = () => $("settingsModal").classList.add("hidden");
 if ($("settingsEditProfile")) $("settingsEditProfile").onclick = () => {
   $("settingsModal").classList.add("hidden");
@@ -2147,6 +2372,78 @@ if ($("settingsPrivacy")) $("settingsPrivacy").onclick = () => {
   $("privacyModal").classList.remove("hidden");
 };
 if ($("privacyClose")) $("privacyClose").onclick = () => $("privacyModal").classList.add("hidden");
+
+async function toggleProfileFlag(key, onMsg, offMsg) {
+  if (!S.user || !S.profile) return;
+  const cur = !!S.profile[key];
+  // readReceipts uses inverted default (undefined = on)
+  const next = key === "readReceipts" ? (S.profile.readReceipts === false ? true : false) : !cur;
+  try {
+    await updateDoc(doc(db, "users", S.user.uid), { [key]: next });
+    S.profile[key] = next;
+    toast(next ? onMsg : offMsg);
+    refreshSettingsLabels();
+  } catch (e) { toast("Could not update setting."); }
+}
+
+if ($("settingsMatesOnly")) $("settingsMatesOnly").onclick = () =>
+  toggleProfileFlag("matesOnly", "Only Mates can message you.", "Anyone can message you.");
+if ($("settingsNotesOnly")) $("settingsNotesOnly").onclick = () =>
+  toggleProfileFlag("notesOnlyMates", "Only Mates can send you notes.", "Anyone can send you notes.");
+if ($("settingsHideOnline")) $("settingsHideOnline").onclick = () =>
+  toggleProfileFlag("hideOnline", "You're hidden from Online.", "Your online status is visible.");
+if ($("settingsReceipts")) $("settingsReceipts").onclick = () =>
+  toggleProfileFlag("readReceipts", "Read receipts on.", "Read receipts off — others won't see when you read.");
+
+if ($("settingsBlocked")) $("settingsBlocked").onclick = async () => {
+  $("settingsModal").classList.add("hidden");
+  const box = $("blockedList");
+  if (box) {
+    box.textContent = "";
+    box.append(el("p", "muted small", "Loading…"));
+    try {
+      const snap = await getDocs(query(collection(db, "blocks"), where("blocker", "==", S.user.uid), limit(50)));
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      box.textContent = "";
+      if (!rows.length) box.append(el("p", "note", "You haven't blocked anyone."));
+      const uids = rows.map(r => r.uid || r.blocked || (r.id || "").split("_")[1]).filter(Boolean);
+      await ensureUsers(uids);
+      rows.forEach(r => {
+        const uid = r.uid || r.blocked || (r.id || "").split("_").filter(x => x !== S.user.uid)[0];
+        const u = S.users[uid] || {};
+        const row = el("div", "row");
+        row.append(avatar(u.photo, "sm"));
+        const info = el("div", "info");
+        info.append(el("b", "", u.name || "User"));
+        info.append(el("span", "", u.username ? "@" + u.username : ""));
+        row.append(info);
+        const un = el("button", "btn small", "Unblock");
+        un.onclick = async () => {
+          await unblockUser(uid);
+          toast("Unblocked.");
+          $("settingsBlocked").click();
+        };
+        row.append(un);
+        box.append(row);
+      });
+    } catch (e) {
+      console.error(e);
+      box.textContent = "";
+      box.append(el("p", "note", "Could not load blocked list."));
+    }
+  }
+  $("blockedModal").classList.remove("hidden");
+};
+if ($("blockedClose")) $("blockedClose").onclick = () => $("blockedModal").classList.add("hidden");
+
+if ($("settingsTrust")) {
+  $("settingsTrust").onclick = () => {
+    $("settingsModal").classList.add("hidden");
+    $("trustModal").classList.remove("hidden");
+  };
+}
+if ($("trustClose")) $("trustClose").onclick = () => $("trustModal").classList.add("hidden");
+
 if ($("settingsSignOut")) $("settingsSignOut").onclick = () => {
   closeAllModals();
   signOut(auth);
@@ -2200,4 +2497,11 @@ if ($("modBanNameBtn")) $("modBanNameBtn").onclick = async () => {
   const name = await showPrompt("Username to ban (without @):");
   if (!name) return;
   await modBanUsername(name.trim().toLowerCase());
+};
+
+if ($("openSchoolEvents")) $("openSchoolEvents").onclick = () => {
+  go("calendar");
+  document.querySelectorAll("aside .item").forEach(el => el.classList.remove("on"));
+  $("openSchoolEvents").classList.add("on");
+  if (mobile()) appEl.classList.remove("open");
 };

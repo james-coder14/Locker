@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a0a0a">
 <title>Locker</title>
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=34">
 </head>
 <body>
 
@@ -60,6 +60,7 @@
         <p class="muted small" id="roleNote">Everyone starts as a Student. Classroom creators get teacher tools automatically.</p>
         <select class="field" id="pTheme"><option value="default">Theme: Gray</option><option value="ocean">Theme: Ocean</option><option value="forest">Theme: Forest</option><option value="sunset">Theme: Sunset</option><option value="rose">Theme: Rose</option></select>
         <textarea class="field" id="pBio" maxlength="300" rows="3" placeholder="Bio (a few words about you)"></textarea>
+        <input class="field" id="pSchool" maxlength="40" placeholder="School name (e.g. Lincoln High)">
         <input class="field" id="pStatus" maxlength="40" placeholder="Status (e.g. In class · busy)">
         <input class="field" id="pEmail" type="email" placeholder="Contact email">
         <button id="s1Next" class="btn wide">Next</button>
@@ -128,13 +129,18 @@
       <div class="side-info"><b id="sideName">Student</b><span id="sideBio"></span></div>
       <button class="pencil-btn" id="viewMyProfile" title="View profile">✎</button>
     </div>
-    <button class="item" id="openConfessions">Confessions</button>
+    <div class="label">SCHOOLWIDE</div>
+    <button class="item channel-item" id="openConfessions" data-channel="confessions">Confessions</button>
+    <button class="item channel-item" id="openOverheard" data-channel="overheard">Overheard</button>
+    <button class="item channel-item" id="openMemes" data-channel="memes">Memes</button>
+    <button class="item" id="openSchoolEvents">Events</button>
+    <div class="label">PRIVATE</div>
     <button class="item" id="openMessages">Messages</button>
     <button class="item" id="openSettings">Settings</button>
     <div class="label">CLASSROOMS</div>
     <div id="classList"></div>
     <button class="item quiet" id="addClass">+ Join or create</button>
-    <div class="label">MATES</div>
+    <div class="label">PEOPLE</div>
     <div id="mateRequests"></div>
     <div id="mateList"></div>
     <button class="item quiet" id="addMate">+ Add a Mate</button>
@@ -170,12 +176,17 @@
       <section id="confessions" class="hidden">
         <div class="conf-header">
           <div class="conf-title-row">
-            <h2>Confessions</h2>
+            <h2 id="confTitle">Confessions</h2>
           </div>
-          <p class="muted small">Anonymous school feed. Be kind — mods can still remove abuse.</p>
+          <p class="muted small" id="confSub">Anonymous posts from your school. Be kind — staff can still remove abuse.</p>
           <div class="conf-pills" id="confPills">
-            <span class="pill pill-new" id="confNewPill">0 New</span>
-            <span class="pill pill-online" id="confOnlinePill">0 Online</span>
+            <span class="pill pill-new" id="confNewPill"><b id="confNewN">0</b> New</span>
+            <span class="pill pill-online" id="confOnlinePill"><b id="confOnlineN">0</b> Online</span>
+          </div>
+          <div class="channel-tabs" id="channelTabs">
+            <button type="button" class="channel-tab on" data-channel="confessions">Confessions</button>
+            <button type="button" class="channel-tab" data-channel="overheard">Overheard</button>
+            <button type="button" class="channel-tab" data-channel="memes">Memes</button>
           </div>
         </div>
         <div class="conf-compose">
@@ -253,7 +264,7 @@
   </div>
 </div>
 
-<script type="module" src="app.js?v=28"></script>
+<script type="module" src="app.js?v=34"></script>
 
 <div id="groupModal" class="modal hidden">
   <div class="modal-box">
@@ -271,13 +282,60 @@
 
 
 <div id="settingsModal" class="modal hidden">
-  <div class="modal-box">
+  <div class="modal-box settings-box">
     <h2>Settings</h2>
+    <p class="settings-label">Account</p>
     <button class="btn wide" id="settingsEditProfile">Edit profile</button>
     <button class="btn wide" id="settingsNotes">Notes inbox</button>
+    <button class="btn wide" id="settingsBlocked">Blocked users</button>
+    <p class="settings-label">Privacy</p>
+    <button class="btn wide" id="settingsMatesOnly">Messages: Everyone</button>
+    <button class="btn wide" id="settingsNotesOnly">Notes: Everyone</button>
+    <button class="btn wide" id="settingsHideOnline">Online status: Visible</button>
+    <button class="btn wide" id="settingsReceipts">Read receipts: On</button>
+    <p class="settings-label">Safety</p>
+    <button class="btn wide" id="settingsTrust">Trust & Safety</button>
     <button class="btn wide" id="settingsPrivacy">Privacy & Terms</button>
+    <p class="settings-label">Session</p>
     <button class="btn wide danger" id="settingsSignOut">Sign out</button>
+    <p class="muted small center" style="margin-top:12px" id="settingsVersion">Locker · student network</p>
     <button class="link" id="settingsClose">Close</button>
+  </div>
+</div>
+
+<div id="blockedModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Blocked users</h2>
+    <p class="muted small">They can't message you or send Mate requests.</p>
+    <div id="blockedList"></div>
+    <button class="link" id="blockedClose">Close</button>
+  </div>
+</div>
+
+
+<div id="trustModal" class="modal hidden">
+  <div class="modal-box wide-box" style="max-height:80vh;overflow-y:auto;text-align:left">
+    <h2>Trust & Safety</h2>
+    <p class="muted small">Locker is for real classmates. Keep it safe.</p>
+    <p><b>Community rules</b><br>
+    • No bullying, threats, or harassment<br>
+    • No sharing nudes or sexual content of anyone under 18<br>
+    • No doxxing (addresses, passwords, private info)<br>
+    • No hate based on who someone is<br>
+    • Confessions stay anonymous — don't try to out people</p>
+    <p><b>You're in control</b><br>
+    • Block anyone — they can't message or Mate you<br>
+    • Report posts, messages, and confessions to staff<br>
+    • Message privacy: limit DMs to Mates only<br>
+    • Leave any group chat anytime</p>
+    <p><b>Who can see what</b><br>
+    • Classroom posts: people in that classroom<br>
+    • Confessions: schoolwide, anonymous (staff can remove abuse)<br>
+    • Notes: private to the person you send them to<br>
+    • Mates list: public on your profile</p>
+    <p><b>If something feels wrong</b><br>
+    Report it, block them, and tell a trusted adult at school if it's serious. Locker staff reviews reports.</p>
+    <button class="link" id="trustClose">Close</button>
   </div>
 </div>
 
